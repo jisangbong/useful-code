@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>maxLengthForKorean</title>
+</head>
+<body>
+    <h1>maxLengthForKorean</h1>
+    <div>
+        <div>
+            <textarea rows="10" cols="50" class="form-control" rows="3" id="content_text" name="content_text" maxlength="100" oninput="checkMaxLength(this)" onpaste="handlePaste(event)" data-org-value=""></textarea>
+            <input type="text" id="textCount">
+        </div>
+    </div>
+</body>
+<script>
+
+let pastePosition = 0;
+let pasteText = "";
+let isPaste = false;
+function handlePaste(event) {
+    isPaste = true;
+    const textarea = event.target;
+    pastePosition = parseInt(textarea.selectionStart);
+    pasteText = event.clipboardData.getData('Text');
+}
+
+function checkMaxLength(textarea) {
+    const checkText = textarea.value;
+    const maxLength = parseInt(textarea.maxLength);
+    const selectedPosition = textarea.selectionStart;
+    let lengthInfo = getTextLengthInfo(checkText, maxLength);
+
+    if(lengthInfo.byteLength > maxLength) {
+        if(selectedPosition < checkText.length){
+            if(isPaste){
+                let orgLengthInfo = getTextLengthInfo(textarea.dataset.orgValue, maxLength);
+                let pasteLengthInfo = getTextLengthInfo(pasteText, maxLength - orgLengthInfo.byteLength);
+                textarea.value = textarea.dataset.orgValue.substr(0, pastePosition)
+                                + pasteText.substr(0, pasteLengthInfo.limitIndex)
+                                + textarea.dataset.orgValue.substr(pastePosition);
+                textarea.setSelectionRange(pastePosition + pasteLengthInfo.limitIndex, pastePosition + pasteLengthInfo.limitIndex);
+            } else {
+                textarea.value = textarea.dataset.orgValue;
+                textarea.setSelectionRange(selectedPosition - 1, selectedPosition - 1);
+            }
+        } else {
+            textarea.value = checkText.substring(0, lengthInfo.limitIndex);
+        }
+    }
+    textarea.dataset.orgValue = textarea.value;
+    document.getElementById('textCount').value = getTextLengthInfo(textarea.value, maxLength).byteLength;
+    isPaste = false;
+}
+
+function getTextLengthInfo(checkText, maxLength) {
+    const BYTE_SIZE = {
+            NEWLINE: 2,
+            KOREAN: 3,
+            OTHER: 1
+        };
+    let byteLength = 0;
+    let limitIndex = -1;
+    let limitLength = -1;
+    let i;
+    for(i = 0; i < checkText.length; i++) {
+        const char = checkText[i];
+        let lastCheckLength = 0;
+        if (char === '\n') {
+            byteLength += BYTE_SIZE.NEWLINE;
+            lastCheckLength = 2;
+        } else if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(char)) {
+            byteLength += BYTE_SIZE.KOREAN;
+            lastCheckLength = 3;
+        } else {
+            byteLength += BYTE_SIZE.OTHER;
+            lastCheckLength = 1;
+        }
+        if (limitIndex === -1 && byteLength > maxLength) {
+            limitIndex = i;
+            limitLength = byteLength - lastCheckLength;
+        }
+    }
+    return {
+        byteLength:byteLength,
+        limitIndex:limitIndex,
+        limitLength:limitLength
+    };
+}
+
+</script>
+</html>
