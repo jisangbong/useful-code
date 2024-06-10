@@ -62,30 +62,23 @@ function getTextLengthInfo(checkText, maxLength) {
         };
     let byteLength = 0;
     let limitIndex = -1;
-    let limitLength = -1;
-    let i;
-    for(i = 0; i < checkText.length; i++) {
+    for(let i = 0; i < checkText.length; i++) {
         const char = checkText[i];
         let lastCheckLength = 0;
         if (char === '\n') {
             byteLength += BYTE_SIZE.NEWLINE;
-            lastCheckLength = 2;
         } else if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(char)) {
             byteLength += BYTE_SIZE.KOREAN;
-            lastCheckLength = 3;
         } else {
             byteLength += BYTE_SIZE.OTHER;
-            lastCheckLength = 1;
         }
         if (limitIndex === -1 && byteLength > maxLength) {
             limitIndex = i;
-            limitLength = byteLength - lastCheckLength;
         }
     }
     return {
         byteLength:byteLength,
-        limitIndex:limitIndex,
-        limitLength:limitLength
+        limitIndex:limitIndex
     };
 }
 
