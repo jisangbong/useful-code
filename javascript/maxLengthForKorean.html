@@ -9,7 +9,7 @@
     <h1>maxLengthForKorean</h1>
     <div>
         <div>
-            <textarea rows="10" cols="50" class="form-control" rows="3" id="content_text" name="content_text" maxlength="100" oninput="checkMaxLength(this)" onpaste="handlePaste(event)" data-org-value=""></textarea>
+            <textarea rows="10" cols="50" class="form-control" rows="3" id="content_text" name="content_text" oninput="checkMaxLength(this)" onpaste="handlePaste(event)" data-org-value="" data-max-length="100"></textarea>
             <input type="text" id="textCount">
         </div>
     </div>
@@ -28,7 +28,7 @@ function handlePaste(event) {
 
 function checkMaxLength(textarea) {
     const checkText = textarea.value;
-    const maxLength = parseInt(textarea.maxLength);
+    const maxLength = parseInt(textarea.dataset.maxLength);
     const selectedPosition = textarea.selectionStart;
     let lengthInfo = getTextLengthInfo(checkText, maxLength);
 
@@ -48,6 +48,10 @@ function checkMaxLength(textarea) {
         } else {
             textarea.value = checkText.substring(0, lengthInfo.limitIndex);
         }
+        setTimeout(() => {
+            alert(`The maximum length of ${maxLength} bytes has been exceeded.`);
+        }, 0);
+        
     }
     textarea.dataset.orgValue = textarea.value;
     document.getElementById('textCount').value = getTextLengthInfo(textarea.value, maxLength).byteLength;
