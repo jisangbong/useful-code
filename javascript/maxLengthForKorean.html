@@ -26,6 +26,7 @@ function handlePaste(event) {
     pasteText = event.clipboardData.getData('Text');
 }
 
+let alertShown = false;
 function checkMaxLength(textarea) {
     const checkText = textarea.value;
     const maxLength = parseInt(textarea.dataset.maxLength);
@@ -48,10 +49,15 @@ function checkMaxLength(textarea) {
         } else {
             textarea.value = checkText.substring(0, lengthInfo.limitIndex);
         }
-        setTimeout(() => {
-            alert(`The maximum length of ${maxLength} bytes has been exceeded.`);
-        }, 0);
-        
+        if (!alertShown) {
+            setTimeout(() => {
+                alertShown = true;
+                alert(`The maximum length of ${maxLength} bytes has been exceeded.`);
+                setTimeout(() => {
+                    alertShown = false;
+                }, 300);
+            }, 0);
+        }
     }
     textarea.dataset.orgValue = textarea.value;
     document.getElementById('textCount').value = getTextLengthInfo(textarea.value, maxLength).byteLength;
