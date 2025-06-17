@@ -80,3 +80,99 @@ for g1, g2 in group_pairs:
 
 # Output
 print(summary_df)
+
+
+
+
+
+
+
+
+
+
+# Input data
+data = [
+    {'area': 'a1', 'group': 'g1', 'model': 'm1', 'promo': 'promo1', 'p1': 3, 'p2': 5, 'p3': 1},
+    {'area': 'a1', 'group': 'g1', 'model': 'm2', 'promo': 'promo1', 'p1': 1, 'p2': 3, 'p3': 6}
+]
+
+df = pd.DataFrame(data)
+
+# Melt to long format for ranking
+melted = df.melt(id_vars=['model'], value_vars=['p1', 'p2', 'p3'],
+                 var_name='parameter', value_name='value')
+
+# Dense rank with ascending=False (highest value gets rank 1)
+# This assigns 1 to the highest value, 2 to second highest, etc.
+melted['rank_asc'] = melted['value'].rank(ascending=False, method='dense')
+
+# Now invert rank so highest value gets highest number rank:
+max_rank = melted['rank_asc'].max()
+melted['rank'] = max_rank - melted['rank_asc'] + 1
+
+# Pivot ranks back to wide format
+rank_df = melted.pivot(index='model', columns='parameter', values='rank').add_suffix('_rank').reset_index()
+
+# Merge ranks into original dataframe
+final_df = df.merge(rank_df, on='model')
+print(final_df)
+print(final_df[['model', 'p1', 'p1_rank', 'p2', 'p2_rank', 'p3', 'p3_rank']])
+
+
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+
+# Input data
+data = [
+    {'area': 'a1', 'group': 'g1', 'model': 'm1', 'promo': 'promo1', 'p1': 3, 'p2': 5, 'p3': 1},
+    {'area': 'a1', 'group': 'g1', 'model': 'm2', 'promo': 'promo1', 'p1': 1, 'p2': 3, 'p3': 6},
+    {'area': 'a1', 'group': 'g2', 'model': 'm1', 'promo': 'promo1', 'p1': 3, 'p2': 2, 'p3': 6},
+    {'area': 'a1', 'group': 'g2', 'model': 'm2', 'promo': 'promo1', 'p1': 1, 'p2': 5, 'p3': 9},
+    {'area': 'a1', 'group': 'g3', 'model': 'm1', 'promo': 'promo1', 'p1': 3, 'p2': 2, 'p3': 6},
+    {'area': 'a1', 'group': 'g3', 'model': 'm2', 'promo': 'promo1', 'p1': 1, 'p2': 5, 'p3': 9},
+    {'area': 'a1', 'group': 'g4', 'model': 'm1', 'promo': 'promo1', 'p1': 3, 'p2': 2, 'p3': 6},
+    {'area': 'a1', 'group': 'g4', 'model': 'm2', 'promo': 'promo1', 'p1': 1, 'p2': 5, 'p3': 9}
+]
+df = pd.DataFrame(data)
+
+# Melt to long format for flexible ranking
+melted = df.melt(id_vars=['area', 'group', 'model', 'promo'], 
+                 value_vars=['p1', 'p2', 'p3'], 
+                 var_name='parameter', value_name='value')
+
+# Group by group+promo and rank across all p1/p2/p3 values in that group
+melted['rank'] = (
+    melted
+    .groupby(['group', 'promo'])['value']
+    .rank(ascending=False, method='dense')
+)
+
+# Invert so higher values get higher rank numbers
+melted['rank'] = (
+    melted.groupby(['group', 'promo'])['rank']
+    .transform(lambda x: x.max() - x + 1)
+)
+
+# Pivot rank columns back to wide format
+rank_df = melted.pivot_table(index=['area', 'group', 'model', 'promo'], 
+                              columns='parameter', 
+                              values='rank').add_suffix('_rank').reset_index()
+
+# Merge rank columns into original dataframe
+final_df = df.merge(rank_df, on=['area', 'group', 'model', 'promo'])
+
+# Reorder for readability
+final_df = final_df[['area', 'group', 'model', 'promo', 
+                     'p1', 'p1_rank', 'p2', 'p2_rank', 'p3', 'p3_rank']]
+
+# Show final result
+print(final_df)
