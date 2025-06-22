@@ -759,3 +759,306 @@ df_result = df_result.drop(columns=['original_index'])
 print(df_result)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import numpy as np
+
+dict_map = {}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+random_integers = np.random.randint(1, 10, size=(6))
+
+i = 0
+for main in main_group:
+    dict_map[main] = {}
+    for sub in sub_group:
+        level = (random_integers[i] + 0.1) ** 2
+        if sub == 'g1':
+            grade = 2
+        elif sub == 'g2':
+            grade = 3
+        elif sub == 'g3':
+            grade = 4
+
+        dict_map[main][sub] = level * 2
+    i += 1
+
+print(dict_map)
+
+
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+
+# Predefined grades
+grade_map = {'g1': 2, 'g2': 3, 'g3': 4}
+
+# Create levels using NumPy
+i_array = np.arange(1, len(main_group) + 1)  # [1, 2]
+levels = (i_array + 0.1) ** 2                # [1.21, 4.41]
+scaled_levels = levels * 2                   # [2.42, 8.82]
+
+# Build dict_map
+# dict_map = {
+#     main: {
+#         sub: scaled_levels[i]
+#         for sub in sub_group
+#     }
+#     for i, main in enumerate(main_group)
+# }
+
+dict_map = {
+    main: {
+        sub: {
+            'level': scaled_levels[i],
+            'grade': grade_map[sub]
+        }
+        for sub in sub_group
+    }
+    for i, main in enumerate(main_group)
+}
+
+print(dict_map)
+
+random_integers = np.random.randint(1, 10, size=(6))
+print(random_integers[2])
+
+
+
+
+
+import numpy as np
+
+dict_map = {}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+random_integers = np.random.randint(1, 10, size=(6))
+
+i = 0
+for main in main_group:
+    dict_map[main] = {}
+    for sub in sub_group:
+        level = (random_integers[i] + 0.1) ** 2
+        if sub == 'g1':
+            grade = 2
+        elif sub == 'g2':
+            grade = 3
+        elif sub == 'g3':
+            grade = 4
+
+        dict_map[main][sub] = level * 2
+    i += 1
+
+print(dict_map)
+
+
+
+import numpy as np
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+grade_map = {'g1': 2, 'g2': 3, 'g3': 4}
+
+# Generate random integers (flattened into 2D shape: [main, sub])
+random_values = np.random.randint(1, 10, size=(len(main_group), len(sub_group)))
+levels = (random_values + 0.1) ** 2
+scaled_levels = levels * 2
+
+# Construct dict_map using nested dictionary comprehension
+dict_map = {
+    main: {
+        sub: scaled_levels[i, j]
+        for j, sub in enumerate(sub_group)
+    }
+    for i, main in enumerate(main_group)
+}
+
+print(dict_map)
+
+
+
+
+import numpy as np
+
+dict_map = {'m1':
+                {'g1': 3
+                , 'g2': 4
+                , 'g3': 5}
+            , 'm2':
+                {'g1': 11
+                , 'g2': 12
+                , 'g3': 13}}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+
+
+i = 0
+for main in main_group:
+    for sub in sub_group:
+        level = (dict_map[main][sub] + 0.1) ** 2
+        if sub == 'g1':
+            grade = 2
+        elif sub == 'g2':
+            grade = 3
+        elif sub == 'g3':
+            grade = 4
+
+        dict_map[main][sub] = level * 2
+    i += 1
+
+print(dict_map)
+
+
+dict_map = {
+    'm1': {'g1': 3, 'g2': 4, 'g3': 5},
+    'm2': {'g1': 11, 'g2': 12, 'g3': 13}
+}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+
+# Extract values into a NumPy array
+data = np.array([[dict_map[main][sub] for sub in sub_group] for main in main_group], dtype=float)
+
+# Apply the transformation using NumPy
+scaled = ((data + 0.1) ** 1.2) * 2
+
+# Reconstruct dict_map with updated values
+dict_map = {
+    main: {
+        sub: scaled[i, j]
+        for j, sub in enumerate(sub_group)
+    }
+    for i, main in enumerate(main_group)
+}
+
+print(dict_map)
+
+
+
+import numpy as np
+import pandas as pd
+
+dict_map = {
+    'm1': {'g1': 33, 'g2': 24, 'g3': 14},
+    'm2': {'g1': 11, 'g2': 12, 'g3': 14}
+}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+
+# Step 1: Extract values into NumPy array
+data = np.array([[dict_map[main][sub] for sub in sub_group] for main in main_group], dtype=float)
+print(data)
+# Step 2: Apply the transformation
+scaled = ((data + 0.1) ** 1.2) * 2
+
+# Step 3: Flatten and rank using pandas (dense rank)
+flat_scaled = scaled.flatten()
+ranks = pd.Series(flat_scaled).rank(method='dense').astype(int).values
+
+# Step 4: Reshape ranks back to 2D array
+rank_array = ranks.reshape(scaled.shape)
+
+# Step 5: Rebuild dict_map with ranks instead of scaled values
+dict_map_ranked = {
+    main: {
+        sub: rank_array[i, j]
+        for j, sub in enumerate(sub_group)
+    }
+    for i, main in enumerate(main_group)
+}
+
+print(dict_map_ranked)
+
+
+
+
+
+import numpy as np
+
+dict_map = {'m1':
+                {'g1': 3
+                , 'g2': 4
+                , 'g3': 5}
+            , 'm2':
+                {'g1': 11
+                , 'g2': 12
+                , 'g3': 13}}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+
+
+
+for main in main_group:
+    for sub in sub_group:
+        level = (dict_map[main][sub] + 0.1) ** 1.5
+        if sub == 'g1':
+            grade = 2
+        elif sub == 'g2':
+            grade = 3
+        elif sub == 'g3':
+            grade = 4
+
+        dict_map[main][sub] = level * grade
+
+print(dict_map)
+
+# Can I improve my code to be more efficient using numpy?
+# and then,
+# I want to generate a rank for all values and replace the values. If there are values with the same rank, for example, if the 2nd rank value is the same, the next rank should be 3, not 4.
+# with pandas
+
+
+dict_map = {
+    'm1': {'g1': 23, 'g2': 24, 'g3': 15},
+    'm2': {'g1': 11, 'g2': 12, 'g3': 15}
+}
+
+main_group = ['m1', 'm2']
+sub_group = ['g1', 'g2', 'g3']
+
+# Step 1: Convert dict_map to NumPy array
+data = np.array([[dict_map[main][sub] for sub in sub_group] for main in main_group], dtype=float)
+
+# Step 2: Create grade array based on sub_group
+grade_map = {'g1': 2, 'g2': 3, 'g3': 4}
+grades = np.array([grade_map[sub] for sub in sub_group])[None, :]  # shape (1, 3), for broadcasting
+
+# Step 3: Apply transformation and multiply by grade
+transformed = ((data + 0.1) ** 1.5) * grades
+
+# Step 4: Compute dense ranks with pandas
+flat_transformed = transformed.flatten()
+ranks = pd.Series(flat_transformed).rank(method='dense').astype(int).values
+rank_array = ranks.reshape(transformed.shape)
+
+# Step 5: Rebuild dict_map with ranks
+dict_map_ranked = {
+    main: {
+        sub: rank_array[i, j]
+        for j, sub in enumerate(sub_group)
+    }
+    for i, main in enumerate(main_group)
+}
+
+print(dict_map_ranked)
