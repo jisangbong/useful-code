@@ -464,3 +464,20 @@ dict_map = dict_map_ranked
 print("Rank matrix:\n", result)
 print("Flat ranks:\n", flat_ranks)
 print("dict_map with ranks:\n", dict_map)
+
+
+import pandas as pd
+import numpy as np
+
+df = pd.DataFrame({
+    'A': ['x', 'x', 'y', 'y'],
+    'B': [1, np.nan, 5, np.nan],
+    'C': [2, 3, np.nan, 8],
+    'D': [np.nan, 4, 6, 7]
+})
+
+df[['B', 'C', 'D']] = df.groupby('A')[['B', 'C', 'D']].transform(
+    lambda x: x.fillna(x.max().max() + 1)
+)
+
+print(df)
