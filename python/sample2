@@ -575,3 +575,30 @@ print(df[['prod', 'promo']])
 
 
 
+import pandas as pd
+
+# Input data
+data = [
+    {'prod_group': 'bike', 'prod': 'bike1', 'seller': 'us', 'promo': '10|zzz_pro/20|abc_pro/50|eye_pro'},
+    {'prod_group': 'motor', 'prod': 'motor1', 'seller': 'us', 'promo': '10|zzz_pro/40|cca_pro'},
+    {'prod_group': 'motor', 'prod': 'motor2', 'seller': 'us', 'promo': '30|kkk_pro/40|cca_pro/50|eye_pro'},
+    {'prod_group': 'motor', 'prod': 'motor3', 'seller': 'eu', 'promo': '30|kkk_pro'},
+    {'prod_group': 'motor', 'prod': 'motor4', 'seller': 'eu', 'promo': '50|eye_pro'},
+]
+
+df = pd.DataFrame(data)
+
+# Function: sort promo names alphabetically (after '|')
+def sort_promo_names(promo):
+    parts = promo.split('/')
+    names = [p.split('|')[1] for p in parts]
+    names_sorted = sorted(names)
+    return '/'.join(names_sorted)
+
+# Group by one or more columns
+group_cols = ['prod_group', 'seller']
+
+# Apply transformation within each group
+df['promo'] = df.groupby(group_cols)['promo'].transform(lambda x: x.apply(sort_promo_names))
+
+print(df[['prod_group', 'seller', 'prod', 'promo']])
