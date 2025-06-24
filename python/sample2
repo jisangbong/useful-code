@@ -481,3 +481,14 @@ df[['B', 'C', 'D']] = df.groupby('A')[['B', 'C', 'D']].transform(
 )
 
 print(df)
+
+
+def fill_groupwise_max_plus_one(group):
+    row_max = group[['B', 'C', 'D']].max(axis=1)
+    group_max = row_max.max()
+    return group[['B', 'C', 'D']].applymap(
+        lambda x: group_max + 1 if pd.isna(x) else x
+    ).assign(A=group['A'].values)
+
+df = df.groupby('A', group_keys=False).apply(fill_groupwise_max_plus_one)
+
