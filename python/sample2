@@ -21,6 +21,7 @@ import sys
 
 print('python:', sys.version)
 print('numpy:', np.__version__)
+
 print('pandas:', pd.__version__)
 
 
@@ -516,4 +517,36 @@ def fill_groupwise_max_plus_one(group):
 df = df.groupby('A', group_keys=False).apply(fill_groupwise_max_plus_one)
 
 print(df)
+
+
+
+
+
+
+
+
+data_list = [
+    '50|eye_pro/10|zzz_pro/20|abc_pro',
+    '10|zzz_pro/40|cca_pro',
+    '50|eye_pro',
+    '40|cca_pro/30|kkk_pro/50|eye_pro',
+    '30|kkk_pro'
+]
+
+def get_number(part):
+    return int(part.split('|')[0])
+
+# Step 1: Sort each string's parts by number
+sorted_items = []
+for item in data_list:
+    parts = item.split('/')
+    sorted_parts = sorted(parts, key=get_number)
+    sorted_items.append('/'.join(sorted_parts))
+
+# Step 2: Sort the whole list by the first number in each item
+final_result = sorted(sorted_items, key=lambda x: get_number(x.split('/')[0]))
+
+print(final_result)
+
+
 
