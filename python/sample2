@@ -549,4 +549,28 @@ final_result = sorted(sorted_items, key=lambda x: get_number(x.split('/')[0]))
 print(final_result)
 
 
+# Your input data
+data = [
+    {'prod_group': 'bike', 'prod': 'bike1', 'seller': 'us', 'promo': '10|zzz_pro/20|abc_pro/50|eye_pro', 'pp': 0, 'p1': 0, 'p2': 0, 'p3': 0},
+    {'prod_group': 'motor', 'prod': 'motor1', 'seller': 'us', 'promo': '10|zzz_pro/40|cca_pro', 'pp': 0, 'p1': 0, 'p2': 0, 'p3': 0},
+    {'prod_group': 'motor', 'prod': 'motor2', 'seller': 'us', 'promo': '30|kkk_pro/40|cca_pro/50|eye_pro', 'pp': 0, 'p1': 0, 'p2': 0, 'p3': 0},
+    {'prod_group': 'motor', 'prod': 'motor3', 'seller': 'eu', 'promo': '30|kkk_pro', 'pp': 0, 'p1': 0, 'p2': 0, 'p3': 0},
+    {'prod_group': 'motor', 'prod': 'motor4', 'seller': 'eu', 'promo': '50|eye_pro', 'pp': 0, 'p1': 0, 'p2': 0, 'p3': 0},
+]
+
+df = pd.DataFrame(data)
+
+# Function to process promo field
+def sort_promo_names(promo):
+    parts = promo.split('/')
+    names = [p.split('|')[1] for p in parts]
+    names_sorted = sorted(names)
+    return '/'.join(names_sorted)
+
+# Apply to 'promo' column
+df['promo'] = df['promo'].apply(sort_promo_names)
+
+print(df[['prod', 'promo']])
+
+
 
