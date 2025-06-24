@@ -545,6 +545,7 @@ for item in data_list:
 
 # Step 2: Sort the whole list by the first number in each item
 final_result = sorted(sorted_items, key=lambda x: get_number(x.split('/')[0]))
+final_result = sorted(sorted_items, key=lambda x: len(x.split('/')))
 
 print(final_result)
 
