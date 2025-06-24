@@ -492,3 +492,28 @@ def fill_groupwise_max_plus_one(group):
 
 df = df.groupby('A', group_keys=False).apply(fill_groupwise_max_plus_one)
 
+
+import pandas as pd
+import numpy as np
+
+# Sample DataFrame
+df = pd.DataFrame({
+    'A': ['x', 'x', 'y', 'y'],
+    'B': [1, np.nan, 5, np.nan],
+    'C': [2, 3, np.nan, 8],
+    'D': [np.nan, 4, 6, 7]
+})
+
+# Function to process each group
+def fill_groupwise_max_plus_one(group):
+    cols = ['B', 'C', 'D']
+    row_max = group[cols].max(axis=1)
+    group_max = row_max.max()
+    group[cols] = group[cols].fillna(group_max + 1)
+    return group
+
+# Apply group-wise processing
+df = df.groupby('A', group_keys=False).apply(fill_groupwise_max_plus_one)
+
+print(df)
+
