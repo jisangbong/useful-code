@@ -295,6 +295,28 @@ GROUP  BY e.deptno, s.empno, s.sale_date;
 
 
 
+DECLARE
+    CURSOR c_data IS
+        SELECT e.deptno, s.empno, s.sale_date, SUM(s.sales_amount) AS total_sales
+        FROM emp e
+             JOIN sales s ON e.empno = s.empno
+        GROUP BY e.deptno, s.empno, s.sale_date;
+    TYPE perf_tab IS TABLE OF performance%ROWTYPE;
+    l_data perf_tab;
+BEGIN
+    OPEN c_data;
+    LOOP
+        FETCH c_data BULK COLLECT INTO l_data LIMIT 10000;  -- fetch 10k at a time
+        EXIT WHEN l_data.COUNT = 0;
+
+        FORALL i IN 1 .. l_data.COUNT
+            INSERT INTO performance (deptno, empno, sale_date, total_sales)
+            VALUES (l_data(i).deptno, l_data(i).empno, l_data(i).sale_date, l_data(i).total_sales);
+
+        COMMIT;  -- commit after each chunk
+    END LOOP;
+    CLOSE c_data;
+END;
 
 
 
