@@ -1,1 +1,183 @@
 
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+    -- Cursor for departments
+    CURSOR dept_cur IS
+        SELECT deptno
+        FROM dept;
+
+    -- Cursor for employees in a department
+    CURSOR emp_cur(p_deptno dept.deptno%TYPE) IS
+        SELECT empno
+        FROM emp
+        WHERE deptno = p_deptno;
+
+    -- Cursor for sales by employee, grouped by date
+    CURSOR sales_cur(p_empno emp.empno%TYPE) IS
+        SELECT sale_date,
+               SUM(sales_amount) AS total_sales
+        FROM sales
+        WHERE empno = p_empno
+        GROUP BY sale_date;
+BEGIN
+    -- Loop through departments
+    FOR d IN dept_cur LOOP
+        -- Loop through employees in each department
+        FOR e IN emp_cur(d.deptno) LOOP
+            -- Loop through sales totals for each employee
+            FOR s IN sales_cur(e.empno) LOOP
+                INSERT INTO performance (deptno, empno, sale_date, total_sales)
+                VALUES (d.deptno, e.empno, s.sale_date, s.total_sales);
+            END LOOP;
+        END LOOP;
+    END LOOP;
+
+    COMMIT;
+END load_performance;
+/
+
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+BEGIN
+    -- Loop over departments
+    FOR d IN (SELECT deptno FROM dept) LOOP
+        -- Loop over employees in each department
+        FOR e IN (SELECT empno FROM emp WHERE deptno = d.deptno) LOOP
+            -- Loop over sales totals by date for each employee
+            FOR s IN (SELECT sale_date,
+                             SUM(sales_amount) AS total_sales
+                      FROM sales
+                      WHERE empno = e.empno
+                      GROUP BY sale_date) LOOP
+
+                INSERT INTO performance (deptno, empno, sale_date, total_sales)
+                VALUES (d.deptno, e.empno, s.sale_date, s.total_sales);
+
+            END LOOP;
+        END LOOP;
+    END LOOP;
+
+    COMMIT;
+END load_performance;
+/
+
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+    c_dept   SYS_REFCURSOR;
+    c_emp    SYS_REFCURSOR;
+    c_sales  SYS_REFCURSOR;
+
+    v_deptno dept.deptno%TYPE;
+    v_empno  emp.empno%TYPE;
+    v_date   sales.sale_date%TYPE;
+    v_total  NUMBER;
+BEGIN
+    OPEN c_dept FOR SELECT deptno FROM dept;
+    LOOP
+        FETCH c_dept INTO v_deptno; EXIT WHEN c_dept%NOTFOUND;
+
+        OPEN c_emp FOR SELECT empno FROM emp WHERE deptno = v_deptno;
+        LOOP
+            FETCH c_emp INTO v_empno; EXIT WHEN c_emp%NOTFOUND;
+
+            OPEN c_sales FOR
+                SELECT sale_date, SUM(sales_amount)
+                FROM sales
+                WHERE empno = v_empno
+                GROUP BY sale_date;
+
+            LOOP
+                FETCH c_sales INTO v_date, v_total; EXIT WHEN c_sales%NOTFOUND;
+
+                INSERT INTO performance (deptno, empno, sale_date, total_sales)
+                VALUES (v_deptno, v_empno, v_date, v_total);
+
+            END LOOP;
+            CLOSE c_sales;
+        END LOOP;
+        CLOSE c_emp;
+    END LOOP;
+    CLOSE c_dept;
+
+    COMMIT;
+END load_performance;
+/
+
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+    v_count PLS_INTEGER := 0;
+BEGIN
+    -- Loop over departments
+    FOR d IN (SELECT deptno FROM dept) LOOP
+        -- Loop over employees in each department
+        FOR e IN (SELECT empno FROM emp WHERE deptno = d.deptno) LOOP
+            -- Loop over sales totals by date for each employee
+            FOR s IN (SELECT sale_date,
+                             SUM(sales_amount) AS total_sales
+                      FROM sales
+                      WHERE empno = e.empno
+                      GROUP BY sale_date) LOOP
+
+                INSERT INTO performance (deptno, empno, sale_date, total_sales)
+                VALUES (d.deptno, e.empno, s.sale_date, s.total_sales);
+
+                v_count := v_count + 1;
+
+                -- Commit every 10,000 rows
+                IF MOD(v_count, 10000) = 0 THEN
+                    COMMIT;
+                END IF;
+
+            END LOOP;
+        END LOOP;
+    END LOOP;
+
+    -- Final commit for leftovers
+    COMMIT;
+END load_performance;
+/
+
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+    TYPE perf_tab IS TABLE OF performance%ROWTYPE;
+    l_data perf_tab;
+BEGIN
+    -- Fetch everything in one SELECT
+    SELECT e.deptno, s.empno, s.sale_date, SUM(s.sales_amount)
+    BULK COLLECT INTO l_data
+    FROM emp e
+         JOIN sales s ON e.empno = s.empno
+         JOIN dept d  ON e.deptno = d.deptno
+    GROUP BY e.deptno, s.empno, s.sale_date;
+
+    -- Insert in chunks of 10,000
+    FOR i IN 1 .. CEIL(l_data.COUNT / 10000) LOOP
+        FORALL j IN ((i-1)*10000 + 1) .. LEAST(i*10000, l_data.COUNT)
+            INSERT INTO performance VALUES l_data(j);
+        COMMIT;
+    END LOOP;
+END load_performance;
+/
+
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+    TYPE perf_tab IS TABLE OF performance%ROWTYPE;
+    l_data perf_tab;
+BEGIN
+    -- Collect everything with one query
+    SELECT e.deptno, s.empno, s.sale_date, SUM(s.sales_amount)
+    BULK COLLECT INTO l_data
+    FROM   emp e
+           JOIN sales s ON e.empno = s.empno
+           JOIN dept d  ON e.deptno = d.deptno
+    GROUP  BY e.deptno, s.empno, s.sale_date;
+
+    -- Insert in chunks of 10,000
+    FOR i IN 1 .. CEIL(l_data.COUNT / 10000) LOOP
+        FORALL j IN ((i-1)*10000 + 1) .. LEAST(i*10000, l_data.COUNT)
+            INSERT INTO performance VALUES l_data(j);
+        COMMIT;
+    END LOOP;
+END load_performance;
+/
+
