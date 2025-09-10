@@ -283,6 +283,14 @@ END load_and_update_performance;
 
 
 
+INSERT /*+ APPEND */ INTO performance (deptno, empno, sale_date, total_sales)
+SELECT e.deptno,
+       s.empno,
+       s.sale_date,
+       SUM(s.sales_amount)
+FROM   emp e
+       JOIN sales s ON e.empno = s.empno
+GROUP  BY e.deptno, s.empno, s.sale_date;
 
 
 
