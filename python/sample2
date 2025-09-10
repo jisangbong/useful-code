@@ -362,5 +362,14 @@ BEGIN
 END;
 
 
+UPDATE (
+    SELECT t1.column1, t1.column2, t2.new_column1, t2.new_column2
+    FROM your_table t1
+    JOIN another_table t2
+      ON t1.id = t2.id
+     AND t2.some_condition
+) v
+SET v.column1 = v.new_column1,
+    v.column2 = v.new_column2;
 
 
