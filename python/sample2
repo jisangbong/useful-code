@@ -37,6 +37,49 @@ END load_performance;
 /
 
 
+
+CREATE OR REPLACE PROCEDURE update_emp_performance_bulk IS
+    -- Record type for employee updates
+    TYPE emp_perf_rec IS RECORD (
+        empno      emp.empno%TYPE,
+        total_perf NUMBER
+    );
+
+    -- Table type for bulk processing
+    TYPE emp_perf_tab IS TABLE OF emp_perf_rec;
+    l_emp_perf emp_perf_tab;
+
+    -- Cursor for batching
+    CURSOR c_perf IS
+        SELECT empno, SUM(total_sales) AS total_perf
+        FROM performance
+        GROUP BY empno;
+
+    l_limit CONSTANT PLS_INTEGER := 10000;  -- chunk size
+    l_count PLS_INTEGER := 0;
+BEGIN
+    OPEN c_perf;
+    LOOP
+        FETCH c_perf BULK COLLECT INTO l_emp_perf LIMIT l_limit;
+        EXIT WHEN l_emp_perf.COUNT = 0;
+
+        -- Bulk update EMP using FORALL
+        FORALL i IN 1 .. l_emp_perf.COUNT
+            UPDATE emp
+            SET performance = l_emp_perf(i).total_perf
+            WHERE empno = l_emp_perf(i).empno;
+
+        COMMIT;  -- commit after each chunk
+        l_count := l_count + l_emp_perf.COUNT;
+        DBMS_OUTPUT.PUT_LINE('Updated ' || l_count || ' rows so far...');
+    END LOOP;
+
+    CLOSE c_perf;
+    DBMS_OUTPUT.PUT_LINE('All EMP rows updated successfully.');
+END update_emp_performance_bulk;
+/
+
+
 CREATE OR REPLACE PROCEDURE load_performance IS
 BEGIN
     -- Loop over departments
