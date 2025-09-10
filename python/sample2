@@ -181,3 +181,113 @@ BEGIN
 END load_performance;
 /
 
+
+CREATE OR REPLACE PROCEDURE load_performance IS
+    -- Custom record type matching the 4 columns we insert
+    TYPE perf_rec IS RECORD (
+        deptno      performance.deptno%TYPE,
+        empno       performance.empno%TYPE,
+        sale_date   performance.sale_date%TYPE,
+        total_sales performance.total_sales%TYPE
+    );
+
+    -- Table type for bulk processing
+    TYPE perf_tab IS TABLE OF perf_rec;
+    l_data perf_tab;
+BEGIN
+    -- Bulk collect from sales aggregation
+    SELECT e.deptno,
+           s.empno,
+           s.sale_date,
+           SUM(s.sales_amount)
+    BULK COLLECT INTO l_data
+    FROM   emp e
+           JOIN sales s ON e.empno = s.empno
+           JOIN dept d  ON e.deptno = d.deptno
+    GROUP  BY e.deptno, s.empno, s.sale_date;
+
+    -- Insert in chunks of 10,000 rows
+    FOR i IN 1 .. CEIL(l_data.COUNT / 10000) LOOP
+        FORALL j IN ((i-1)*10000 + 1) .. LEAST(i*10000, l_data.COUNT)
+            INSERT INTO performance (deptno, empno, sale_date, total_sales)
+            VALUES (l_data(j).deptno,
+                    l_data(j).empno,
+                    l_data(j).sale_date,
+                    l_data(j).total_sales);
+
+        COMMIT;
+    END LOOP;
+END load_performance;
+
+
+
+
+CREATE OR REPLACE PROCEDURE load_and_update_performance IS
+    -- Type for bulk collecting performance inserts
+    TYPE perf_rec IS RECORD (
+        deptno      performance.deptno%TYPE,
+        empno       performance.empno%TYPE,
+        sale_date   performance.sale_date%TYPE,
+        total_sales performance.total_sales%TYPE
+    );
+
+    TYPE perf_tab IS TABLE OF perf_rec;
+    l_perf perf_tab;
+
+    -- Type for updating EMP.performance
+    TYPE emp_perf_rec IS RECORD (
+        empno       emp.empno%TYPE,
+        total_perf  NUMBER
+    );
+
+    TYPE emp_perf_tab IS TABLE OF emp_perf_rec;
+    l_emp_perf emp_perf_tab;
+BEGIN
+    -- 1️⃣ Bulk collect aggregated sales into collection
+    SELECT e.deptno,
+           s.empno,
+           s.sale_date,
+           SUM(s.sales_amount) AS total_sales
+    BULK COLLECT INTO l_perf
+    FROM   emp e
+           JOIN sales s ON e.empno = s.empno
+           JOIN dept d  ON e.deptno = d.deptno
+    GROUP  BY e.deptno, s.empno, s.sale_date;
+
+    -- 2️⃣ Insert into PERFORMANCE in chunks of 10,000 rows
+    FOR i IN 1 .. CEIL(l_perf.COUNT / 10000) LOOP
+        FORALL j IN ((i-1)*10000 + 1) .. LEAST(i*10000, l_perf.COUNT)
+            INSERT INTO performance (deptno, empno, sale_date, total_sales)
+            VALUES (l_perf(j).deptno,
+                    l_perf(j).empno,
+                    l_perf(j).sale_date,
+                    l_perf(j).total_sales);
+
+        COMMIT; -- commit after each chunk
+    END LOOP;
+
+    -- 3️⃣ Collect total performance per employee for EMP update
+    SELECT empno, SUM(total_sales) AS total_perf
+    BULK COLLECT INTO l_emp_perf
+    FROM performance
+    GROUP BY empno;
+
+    -- 4️⃣ Bulk update EMP.performance
+    FORALL i IN 1 .. l_emp_perf.COUNT
+        UPDATE emp
+        SET performance = l_emp_perf(i).total_perf
+        WHERE empno = l_emp_perf(i).empno;
+
+    COMMIT; -- final commit after updating EMP
+END load_and_update_performance;
+
+
+
+
+
+
+
+
+
+
+
