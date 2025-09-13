@@ -34,7 +34,7 @@ BEGIN
 
     COMMIT;
 END load_performance;
-/
+
 
 
 
@@ -585,4 +585,345 @@ ORDER BY location_id, item_id, shop_id, week_monday, day_pos, date_seq;
 
 
 
+
+
+WITH
+-- 1) combos of shop/location/item
+combos AS (
+    SELECT DISTINCT location_id, item_id, shop_id
+    FROM (
+        SELECT location_id, item_id, shop_id FROM delivery_table
+        UNION ALL
+        SELECT location_id, item_id, shop_id FROM sales_table
+    )
+),
+-- 2) calendar dates
+dates AS (
+    SELECT date_seq
+    FROM date_table
+    WHERE date_seq BETWEEN DATE '2025-08-01' AND DATE '2025-09-01'
+),
+-- 3) full calendar per combo
+calendar AS (
+    SELECT c.location_id,
+           c.item_id,
+           c.shop_id,
+           d.date_seq
+    FROM combos c
+    CROSS JOIN dates d
+),
+-- 4) aggregate deliveries
+del_agg AS (
+    SELECT location_id, item_id, shop_id, delivery_date, SUM(delivery_qty) AS delivery_qty
+    FROM delivery_table
+    GROUP BY location_id, item_id, shop_id, delivery_date
+),
+-- 5) aggregate sales
+sal_agg AS (
+    SELECT location_id, item_id, shop_id, sales_date, SUM(sales_qty) AS sales_qty
+    FROM sales_table
+    GROUP BY location_id, item_id, shop_id, sales_date
+),
+-- 6) daily data with NVL
+daily_data AS (
+    SELECT
+        cal.location_id,
+        cal.item_id,
+        cal.shop_id,
+        cal.date_seq,
+        NVL(del.delivery_qty, 0) AS delivery_qty,
+        NVL(sal.sales_qty, 0)    AS sales_qty
+    FROM calendar cal
+    LEFT JOIN del_agg del
+      ON cal.location_id = del.location_id
+     AND cal.item_id     = del.item_id
+     AND cal.shop_id     = del.shop_id
+     AND cal.date_seq    = del.delivery_date
+    LEFT JOIN sal_agg sal
+      ON cal.location_id = sal.location_id
+     AND cal.item_id     = sal.item_id
+     AND cal.shop_id     = sal.shop_id
+     AND cal.date_seq    = sal.sales_date
+),
+-- 7) rolling 28-day averages
+rolling AS (
+    SELECT
+        d.location_id,
+        d.item_id,
+        d.shop_id,
+        d.date_seq,
+        d.delivery_qty,
+        d.sales_qty,
+        SUM(d.delivery_qty) OVER (
+            PARTITION BY d.location_id, d.item_id, d.shop_id
+            ORDER BY d.date_seq
+            ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+        ) AS sum_delivery_28d,
+        SUM(d.sales_qty) OVER (
+            PARTITION BY d.location_id, d.item_id, d.shop_id
+            ORDER BY d.date_seq
+            ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+        ) AS sum_sales_28d,
+        COUNT(*) OVER (
+            PARTITION BY d.location_id, d.item_id, d.shop_id
+            ORDER BY d.date_seq
+            ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+        ) AS cnt_28d
+    FROM daily_data d
+),
+-- 8) average past 28 days
+avg_data AS (
+    SELECT
+        r.*,
+        CASE WHEN r.cnt_28d > 0 THEN r.sum_delivery_28d / r.cnt_28d ELSE 0 END AS avg_delivery_28d,
+        CASE WHEN r.cnt_28d > 0 THEN r.sum_sales_28d / r.cnt_28d ELSE 0 END AS avg_sales_28d
+    FROM rolling r
+),
+-- 9) total per location/item/date
+totals AS (
+    SELECT
+        a.date_seq,
+        a.location_id,
+        a.item_id,
+        SUM(a.delivery_qty) AS total_delivery_qty,
+        SUM(a.avg_delivery_28d) AS total_avg_delivery_28d,
+        SUM(a.avg_sales_28d) AS total_avg_sales_28d
+    FROM avg_data a
+    GROUP BY a.date_seq, a.location_id, a.item_id
+),
+-- 10) join to compute proportions and initial fixed allocation
+proportions AS (
+    SELECT
+        a.location_id,
+        a.item_id,
+        a.shop_id,
+        a.date_seq,
+        a.delivery_qty,
+        a.sales_qty,
+        a.avg_delivery_28d,
+        a.avg_sales_28d,
+        t.total_delivery_qty,
+        t.total_avg_delivery_28d,
+        t.total_avg_sales_28d,
+        CASE WHEN t.total_avg_delivery_28d = 0 THEN 0
+             ELSE round(a.avg_delivery_28d / t.total_avg_delivery_28d, 4) END AS avg_delivery_28d_proportion,
+        CASE WHEN t.total_avg_sales_28d = 0 THEN 0
+             ELSE round(a.avg_sales_28d / t.total_avg_sales_28d, 4) END AS avg_sales_28d_proportion,
+        ROUND(t.total_delivery_qty *
+             CASE WHEN t.total_avg_delivery_28d = 0 THEN 1.0 / COUNT(*) OVER (PARTITION BY a.location_id, a.item_id, a.date_seq)
+                  ELSE a.avg_delivery_28d / t.total_avg_delivery_28d END
+        ) AS fixed_delivery_qty_base
+    FROM avg_data a
+    JOIN totals t
+      ON a.location_id = t.location_id
+     AND a.item_id     = t.item_id
+     AND a.date_seq    = t.date_seq
+),
+-- 11) adjust rounding differences
+adjusted AS (
+    SELECT
+        p.*,
+        SUM(p.fixed_delivery_qty_base) OVER (PARTITION BY p.location_id, p.item_id, p.date_seq) AS sum_fixed_base,
+        ROW_NUMBER() OVER (PARTITION BY p.location_id, p.item_id, p.date_seq ORDER BY p.avg_delivery_28d_proportion DESC) AS rn_desc,
+        ROW_NUMBER() OVER (PARTITION BY p.location_id, p.item_id, p.date_seq ORDER BY p.avg_delivery_28d_proportion ASC) AS rn_asc
+    FROM proportions p
+)
+-- 12) final fixed delivery qty with adjustment
+SELECT
+    a.location_id,
+    a.item_id,
+    a.shop_id,
+    a.date_seq,
+    a.delivery_qty,
+    a.sales_qty,
+    a.avg_delivery_28d,
+    a.avg_sales_28d,
+    a.avg_delivery_28d_proportion,
+    a.avg_sales_28d_proportion,
+    a.total_delivery_qty,
+    a.sum_fixed_base,
+    a.fixed_delivery_qty_base,
+CASE
+    WHEN a.total_delivery_qty = a.sum_fixed_base THEN a.fixed_delivery_qty_base
+    WHEN a.total_delivery_qty > a.sum_fixed_base AND a.rn_desc = 1 THEN a.fixed_delivery_qty_base + (a.total_delivery_qty - a.sum_fixed_base)
+    WHEN a.total_delivery_qty < a.sum_fixed_base AND a.rn_asc = 1 THEN a.fixed_delivery_qty_base - (a.sum_fixed_base - a.total_delivery_qty)
+    ELSE a.fixed_delivery_qty_base
+END AS fixed_delivery_qty
+FROM adjusted a
+ORDER BY a.location_id, a.item_id, a.shop_id, a.date_seq;
+
+
+
+
+
+
+WITH
+-- 1) combos of shop/location/item
+combos AS (
+    SELECT DISTINCT location_id, item_id, shop_id
+    FROM (
+        SELECT location_id, item_id, shop_id FROM delivery_table
+        UNION ALL
+        SELECT location_id, item_id, shop_id FROM sales_table
+    ) t
+),
+-- 2) calendar dates
+dates AS (
+    SELECT date_seq
+    FROM date_table
+    WHERE date_seq BETWEEN DATE '2025-08-01' AND DATE '2025-09-01'
+),
+-- 3) full calendar per combo
+calendar AS (
+    SELECT c.location_id,
+           c.item_id,
+           c.shop_id,
+           d.date_seq
+    FROM combos c
+    CROSS JOIN dates d
+),
+-- 4) aggregate deliveries
+del_agg AS (
+    SELECT location_id, item_id, shop_id, delivery_date, SUM(delivery_qty) AS delivery_qty
+    FROM delivery_table
+    GROUP BY location_id, item_id, shop_id, delivery_date
+),
+-- 5) aggregate sales
+sal_agg AS (
+    SELECT location_id, item_id, shop_id, sales_date, SUM(sales_qty) AS sales_qty
+    FROM sales_table
+    GROUP BY location_id, item_id, shop_id, sales_date
+),
+-- 6) daily data with NVL
+daily_data AS (
+    SELECT
+        cal.location_id,
+        cal.item_id,
+        cal.shop_id,
+        cal.date_seq,
+        NVL(del.delivery_qty, 0) AS delivery_qty,
+        NVL(sal.sales_qty, 0) AS sales_qty
+    FROM calendar cal
+    LEFT JOIN del_agg del
+      ON cal.location_id = del.location_id
+     AND cal.item_id = del.item_id
+     AND cal.shop_id = del.shop_id
+     AND cal.date_seq = del.delivery_date
+    LEFT JOIN sal_agg sal
+      ON cal.location_id = sal.location_id
+     AND cal.item_id = sal.item_id
+     AND cal.shop_id = sal.shop_id
+     AND cal.date_seq = sal.sales_date
+),
+-- 7) rolling 28-day sums and counts (efficient analytic calculation)
+rolling AS (
+    SELECT
+        d.location_id,
+        d.item_id,
+        d.shop_id,
+        d.date_seq,
+        d.delivery_qty,
+        d.sales_qty,
+        SUM(d.delivery_qty) OVER (
+            PARTITION BY d.location_id, d.item_id, d.shop_id
+            ORDER BY d.date_seq
+            ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+        ) AS sum_delivery_28d,
+        SUM(d.sales_qty) OVER (
+            PARTITION BY d.location_id, d.item_id, d.shop_id
+            ORDER BY d.date_seq
+            ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+        ) AS sum_sales_28d,
+        COUNT(*) OVER (
+            PARTITION BY d.location_id, d.item_id, d.shop_id
+            ORDER BY d.date_seq
+            ROWS BETWEEN 28 PRECEDING AND 1 PRECEDING
+        ) AS cnt_28d
+    FROM daily_data d
+),
+-- 8) average past 28 days
+avg_data AS (
+    SELECT
+        r.location_id,
+        r.item_id,
+        r.shop_id,
+        r.date_seq,
+        r.delivery_qty,
+        r.sales_qty,
+        CASE WHEN r.cnt_28d > 0 THEN r.sum_delivery_28d / r.cnt_28d ELSE 0 END AS avg_delivery_28d,
+        CASE WHEN r.cnt_28d > 0 THEN r.sum_sales_28d / r.cnt_28d ELSE 0 END AS avg_sales_28d
+    FROM rolling r
+),
+-- 9) total per location/item/date
+totals AS (
+    SELECT
+        a.date_seq,
+        a.location_id,
+        a.item_id,
+        SUM(a.delivery_qty) AS total_delivery_qty,
+        SUM(a.avg_delivery_28d) AS total_avg_delivery_28d,
+        SUM(a.avg_sales_28d) AS total_avg_sales_28d
+    FROM avg_data a
+    GROUP BY a.date_seq, a.location_id, a.item_id
+),
+-- 10) join to compute proportions and initial fixed allocation
+proportions AS (
+    SELECT
+        a.location_id,
+        a.item_id,
+        a.shop_id,
+        a.date_seq,
+        a.delivery_qty,
+        a.sales_qty,
+        a.avg_delivery_28d,
+        a.avg_sales_28d,
+        t.total_delivery_qty,
+        t.total_avg_delivery_28d,
+        t.total_avg_sales_28d,
+        CASE WHEN t.total_avg_delivery_28d = 0 THEN 0
+             ELSE round(a.avg_delivery_28d / t.total_avg_delivery_28d, 4) END AS avg_delivery_28d_proportion,
+        CASE WHEN t.total_avg_sales_28d = 0 THEN 0
+             ELSE round(a.avg_sales_28d / t.total_avg_sales_28d, 4) END AS avg_sales_28d_proportion,
+        ROUND(t.total_delivery_qty *
+             CASE WHEN t.total_avg_delivery_28d = 0 THEN 1.0 / COUNT(*) OVER (PARTITION BY a.location_id, a.item_id, a.date_seq)
+                  ELSE a.avg_delivery_28d / t.total_avg_delivery_28d END
+        ) AS fixed_delivery_qty_base
+    FROM avg_data a
+    JOIN totals t
+      ON a.location_id = t.location_id
+     AND a.item_id = t.item_id
+     AND a.date_seq = t.date_seq
+),
+-- 11) adjust rounding differences
+adjusted AS (
+    SELECT
+        p.*,
+        SUM(p.fixed_delivery_qty_base) OVER (PARTITION BY p.location_id, p.item_id, p.date_seq) AS sum_fixed_base,
+        ROW_NUMBER() OVER (PARTITION BY p.location_id, p.item_id, p.date_seq ORDER BY p.avg_delivery_28d_proportion DESC) AS rn_desc,
+        ROW_NUMBER() OVER (PARTITION BY p.location_id, p.item_id, p.date_seq ORDER BY p.avg_delivery_28d_proportion ASC) AS rn_asc
+    FROM proportions p
+)
+-- 12) final fixed delivery qty with adjustment
+SELECT
+    a.location_id,
+    a.item_id,
+    a.shop_id,
+    a.date_seq,
+    a.delivery_qty,
+    a.sales_qty,
+    a.avg_delivery_28d,
+    a.avg_sales_28d,
+    a.avg_delivery_28d_proportion,
+    a.avg_sales_28d_proportion,
+    a.total_delivery_qty,
+    a.sum_fixed_base,
+    a.fixed_delivery_qty_base,
+    CASE
+        WHEN a.total_delivery_qty = a.sum_fixed_base THEN a.fixed_delivery_qty_base
+        WHEN a.total_delivery_qty > a.sum_fixed_base AND a.rn_desc = 1 THEN a.fixed_delivery_qty_base + (a.total_delivery_qty - a.sum_fixed_base)
+        WHEN a.total_delivery_qty < a.sum_fixed_base AND a.rn_asc = 1 THEN a.fixed_delivery_qty_base - (a.sum_fixed_base - a.total_delivery_qty)
+        ELSE a.fixed_delivery_qty_base
+    END AS fixed_delivery_qty
+FROM adjusted a
+ORDER BY a.location_id, a.item_id, a.shop_id, a.date_seq;
 
