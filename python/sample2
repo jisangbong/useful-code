@@ -373,3 +373,216 @@ SET v.column1 = v.new_column1,
     v.column2 = v.new_column2;
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+WITH
+-- 1) combos
+combos AS (
+    SELECT DISTINCT location_id, item_id, shop_id
+    FROM (
+        SELECT location_id, item_id, shop_id FROM inventory_table
+        UNION ALL
+        SELECT location_id, item_id, shop_id FROM delivery_table
+        UNION ALL
+        SELECT location_id, item_id, shop_id FROM sales_table
+    )
+),
+-- 2) calendar dates
+dates AS (
+    SELECT date_seq, date_key, day_of_week, date_week, year_of_day
+    FROM date_table
+    WHERE date_seq BETWEEN DATE '2025-07-31' AND DATE '2025-10-31'
+),
+-- 3) full calendar per combo
+calendar AS (
+    SELECT c.location_id,
+           c.item_id,
+           c.shop_id,
+           d.date_seq,
+           d.date_key,
+           d.day_of_week,
+           TRUNC(d.date_seq, 'IW') AS week_monday
+    FROM combos c
+    CROSS JOIN dates d
+),
+-- 4) aggregates on source tables
+inv_agg AS (
+    SELECT location_id, item_id, shop_id, inventory_date, SUM(inventory_qty) AS inventory_qty
+    FROM inventory_table
+    GROUP BY location_id, item_id, shop_id, inventory_date
+),
+del_agg AS (
+    SELECT location_id, item_id, shop_id, delivery_date, SUM(delivery_qty) AS delivery_qty
+    FROM delivery_table
+    GROUP BY location_id, item_id, shop_id, delivery_date
+),
+sal_agg AS (
+    SELECT location_id, item_id, shop_id, sales_date, SUM(sales_qty) AS sales_qty
+    FROM sales_table
+    GROUP BY location_id, item_id, shop_id, sales_date
+),
+-- 5) daily rows w/ running inventory (inventory = running sum of inv + del - sales)
+daily_data AS (
+    SELECT
+        cal.location_id,
+        cal.item_id,
+        cal.shop_id,
+        cal.date_seq,
+        cal.date_key,
+        cal.day_of_week,
+        -- running balance (end-of-day inventory)
+        SUM(NVL(inv.inventory_qty,0) + NVL(del.delivery_qty,0) - NVL(sal.sales_qty,0))
+          OVER (PARTITION BY cal.location_id, cal.item_id, cal.shop_id
+                ORDER BY cal.date_seq
+                ROWS UNBOUNDED PRECEDING) AS inventory_qty,
+        NVL(del.delivery_qty,0) AS delivery_qty,
+        NVL(sal.sales_qty,0)    AS sales_qty,
+        (NVL(del.delivery_qty,0) - NVL(sal.sales_qty,0)) AS day_result,
+        cal.week_monday
+    FROM calendar cal
+    LEFT JOIN inv_agg inv
+      ON cal.location_id = inv.location_id
+     AND cal.item_id     = inv.item_id
+     AND cal.shop_id     = inv.shop_id
+     AND cal.date_seq    = inv.inventory_date
+    LEFT JOIN del_agg del
+      ON cal.location_id = del.location_id
+     AND cal.item_id     = del.item_id
+     AND cal.shop_id     = del.shop_id
+     AND cal.date_seq    = del.delivery_date
+    LEFT JOIN sal_agg sal
+      ON cal.location_id = sal.location_id
+     AND cal.item_id     = sal.item_id
+     AND cal.shop_id     = sal.shop_id
+     AND cal.date_seq    = sal.sales_date
+),
+-- 6) weekly totals (one row per week per combo). inventory = Sunday snapshot (end-of-week),
+-- flows = weekly sums; weekdays_with_data used to decide whether to emit weekly total.
+weekly_agg AS (
+    SELECT
+        location_id,
+        item_id,
+        shop_id,
+        week_monday,
+        week_monday + 6 AS week_sunday,
+        -- Sunday snapshot for inventory (end-of-week)
+        MAX(CASE WHEN date_seq = week_monday + 6 THEN inventory_qty END) AS week_inventory,
+        -- weekly flows
+        SUM(delivery_qty) AS week_delivery,
+        SUM(sales_qty)    AS week_sales,
+        -- how many Mon-Sat rows had any data (useful to decide whether to show weekly total)
+        SUM(CASE WHEN (date_seq - week_monday + 1) BETWEEN 1 AND 6
+                 AND (NVL(inventory_qty,0) <> 0 OR NVL(delivery_qty,0) <> 0 OR NVL(sales_qty,0) <> 0)
+             THEN 1 ELSE 0 END) AS weekdays_with_data
+    FROM daily_data
+    GROUP BY location_id, item_id, shop_id, week_monday
+),
+-- 7) compute forward-4-week averages only on weekly_agg using ROWS BETWEEN 1 FOLLOWING AND 4 FOLLOWING.
+--    This ensures the window moves by weekly rows, not by date range (avoids the daily-row problem).
+weekly_with_avg AS (
+    SELECT
+        w.*,
+        AVG(week_inventory) OVER (
+            PARTITION BY location_id, item_id, shop_id
+            ORDER BY week_monday
+            ROWS BETWEEN 1 FOLLOWING AND 4 FOLLOWING
+        ) AS avg_inv_next4,
+        AVG(week_delivery) OVER (
+            PARTITION BY location_id, item_id, shop_id
+            ORDER BY week_monday
+            ROWS BETWEEN 1 FOLLOWING AND 4 FOLLOWING
+        ) AS avg_del_next4,
+        AVG(week_sales) OVER (
+            PARTITION BY location_id, item_id, shop_id
+            ORDER BY week_monday
+            ROWS BETWEEN 1 FOLLOWING AND 4 FOLLOWING
+        ) AS avg_sales_next4,
+        COUNT(*) OVER (
+            PARTITION BY location_id, item_id, shop_id
+            ORDER BY week_monday
+            ROWS BETWEEN 1 FOLLOWING AND 4 FOLLOWING
+        ) AS weeks_ahead_count
+    FROM weekly_agg w
+),
+-- 8) combined: daily rows + weekly rows (weekly rows pulled from weekly_with_avg; we only emit weekly rows where weekdays_with_data > 0)
+combined AS (
+    -- daily detail rows (no 4-week averages)
+    SELECT
+        location_id,
+        item_id,
+        shop_id,
+        date_seq,
+        date_key,
+        day_of_week,
+        inventory_qty,
+        delivery_qty,
+        sales_qty,
+        day_result,
+        NULL AS weekly_total_flag,
+        week_monday,
+        (date_seq - week_monday + 1) AS day_pos,
+        NULL         AS inventory_qty_4_weeks,
+        NULL         AS delivery_qty_4_weeks,
+        NULL         AS sales_qty_4_weeks
+    FROM daily_data
+    UNION ALL
+    -- weekly total rows, with forward-4-week averages populated only when at least 4 weeks exist ahead
+    SELECT
+        w.location_id,
+        w.item_id,
+        w.shop_id,
+        w.week_sunday   AS date_seq,
+        TO_CHAR(w.week_sunday,'YYYYMMDD') AS date_key,
+        'Weekly Total'  AS day_of_week,
+        w.week_inventory AS inventory_qty,
+        w.week_delivery  AS delivery_qty,
+        w.week_sales     AS sales_qty,
+        NULL             AS day_result,
+        'Y'              AS weekly_total_flag,
+        w.week_monday,
+        8                AS day_pos,
+        CASE WHEN w.weeks_ahead_count >= 4 THEN w.avg_inv_next4 ELSE NULL END AS inventory_qty_4_weeks,
+        CASE WHEN w.weeks_ahead_count >= 4 THEN w.avg_del_next4 ELSE NULL END AS delivery_qty_4_weeks,
+        CASE WHEN w.weeks_ahead_count >= 4 THEN w.avg_sales_next4 ELSE NULL END AS sales_qty_4_weeks
+    FROM weekly_with_avg w
+    WHERE w.weekdays_with_data > 0
+)
+-- final output ordered so weekly total appears after Sunday
+SELECT *
+FROM combined
+ORDER BY location_id, item_id, shop_id, week_monday, day_pos, date_seq;
+
+
+
+
+
+
+
+
+
+
+
