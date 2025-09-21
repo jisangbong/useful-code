@@ -927,3 +927,149 @@ SELECT
 FROM adjusted a
 ORDER BY a.location_id, a.item_id, a.shop_id, a.date_seq;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+WITH
+-- 1) sales per shop on given day
+day_sum_result AS (
+    SELECT LOCATION_ID, ITEM_ID, SHOP_ID, SUM(SALES_QTY) AS DAY_SUM_QTY
+    FROM SALES_TABLE
+    WHERE SALES_DATE = DATE '2025-08-08'
+      AND ITEM_ID = 'MacBook'
+    GROUP BY LOCATION_ID, ITEM_ID, SHOP_ID
+),
+-- 2) total sales per item/location
+shop_sum_result AS (
+    SELECT LOCATION_ID, ITEM_ID, SHOP_ID, DAY_SUM_QTY,
+           SUM(DAY_SUM_QTY) OVER (PARTITION BY LOCATION_ID, ITEM_ID) AS shop_sum_qty
+    FROM day_sum_result
+),
+-- 3) ratio per shop
+shop_ratio AS (
+    SELECT a.ITEM_ID, a.SHOP_ID,
+           ROUND(SUM(a.DAY_SUM_QTY) / SUM(a.SHOP_SUM_QTY), 4) AS ratio
+    FROM shop_sum_result a
+    GROUP BY a.ITEM_ID, a.SHOP_ID
+),
+-- 4) join with deliveries and compute base allocations
+base_rows AS (
+    SELECT A.LOCATION_ID,
+           A.ITEM_ID,
+           A.SHOP_ID,
+           A.DELIVERY_QTY,
+           B.RATIO,
+           SUM(A.DELIVERY_QTY) OVER (PARTITION BY A.LOCATION_ID, A.ITEM_ID) AS total_delivery_qty,
+           ROUND(SUM(A.DELIVERY_QTY) OVER (PARTITION BY A.LOCATION_ID, A.ITEM_ID) * B.RATIO, 0) AS delivery_ratio_qty
+    FROM DELIVERY_TABLE A
+    JOIN shop_ratio B
+      ON A.SHOP_ID = B.SHOP_ID
+    WHERE A.DELIVERY_DATE = DATE '2025-08-08'
+      AND A.LOCATION_ID = 'loc01'
+),
+-- 5) compute total vs sum_base
+totals AS (
+    SELECT location_id, item_id,
+           SUM(delivery_ratio_qty) AS sum_fixed_base,
+           MAX(total_delivery_qty)  AS total_delivery_qty
+    FROM base_rows
+    GROUP BY location_id, item_id
+),
+-- 6) add row numbers for allocation order
+ranked AS (
+    SELECT b.location_id,
+           b.item_id,
+           b.shop_id,
+           b.delivery_qty,
+           b.ratio,
+           b.total_delivery_qty AS base_total_delivery_qty,
+           b.delivery_ratio_qty,
+           t.sum_fixed_base,
+           t.total_delivery_qty AS total_delivery_qty,  -- canonical
+           ROW_NUMBER() OVER (PARTITION BY b.location_id, b.item_id ORDER BY b.ratio ASC)  AS rn_asc,
+           ROW_NUMBER() OVER (PARTITION BY b.location_id, b.item_id ORDER BY b.ratio DESC) AS rn_desc
+    FROM base_rows b
+    JOIN totals t
+      ON b.location_id = t.location_id
+     AND b.item_id     = t.item_id
+),
+-- 7) recursive redistribution of negative difference (only if sum_fixed_base > total_delivery_qty)
+adjust_cte (location_id, item_id, shop_id, rn_asc, delivery_ratio_qty, remaining_diff, fixed_qty) AS (
+    -- Anchor: smallest ratio (rn_asc = 1)
+    SELECT r.location_id,
+           r.item_id,
+           r.shop_id,
+           r.rn_asc,
+           r.delivery_ratio_qty,
+           (r.sum_fixed_base - r.total_delivery_qty) AS remaining_diff,
+           CASE
+             WHEN r.delivery_ratio_qty >= (r.sum_fixed_base - r.total_delivery_qty)
+             THEN r.delivery_ratio_qty - (r.sum_fixed_base - r.total_delivery_qty)
+             ELSE 0
+           END AS fixed_qty
+    FROM ranked r
+    WHERE r.rn_asc = 1
+      AND r.sum_fixed_base > r.total_delivery_qty
+    UNION ALL
+    -- Recursive: next rows absorb the leftover
+    SELECT r.location_id,
+           r.item_id,
+           r.shop_id,
+           r.rn_asc,
+           r.delivery_ratio_qty,
+           GREATEST(a.remaining_diff - r.delivery_ratio_qty, 0) AS remaining_diff,
+           CASE
+             WHEN a.remaining_diff <= r.delivery_ratio_qty
+             THEN r.delivery_ratio_qty - a.remaining_diff
+             ELSE 0
+           END AS fixed_qty
+    FROM ranked r
+    JOIN adjust_cte a
+      ON r.location_id = a.location_id
+     AND r.item_id     = a.item_id
+     AND r.rn_asc      = a.rn_asc + 1
+)
+-- 8) final result
+SELECT r.location_id,
+       r.item_id,
+       r.shop_id,
+       r.delivery_qty,
+       r.delivery_ratio_qty,
+       r.base_total_delivery_qty,
+       r.sum_fixed_base,
+       CASE
+         -- Case 1: sum_fixed_base > total_delivery_qty → use recursive adjusted qty
+         WHEN r.sum_fixed_base > r.total_delivery_qty
+         THEN COALESCE(a.fixed_qty, r.delivery_ratio_qty)
+         -- Case 2: sum_fixed_base < total_delivery_qty → add difference to highest ratio shop
+         WHEN r.sum_fixed_base < r.total_delivery_qty AND r.rn_desc = 1
+         THEN r.delivery_ratio_qty + (r.total_delivery_qty - r.sum_fixed_base)
+         ELSE r.delivery_ratio_qty
+       END AS fixed_delivery_qty
+FROM ranked r
+LEFT JOIN adjust_cte a
+  ON r.location_id = a.location_id
+ AND r.item_id     = a.item_id
+ AND r.shop_id     = a.shop_id
+ORDER BY r.location_id, r.item_id, r.rn_asc;
+
+
