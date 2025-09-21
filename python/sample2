@@ -1073,3 +1073,172 @@ LEFT JOIN adjust_cte a
 ORDER BY r.location_id, r.item_id, r.rn_asc;
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+WITH
+day_sum_result AS (
+SELECT
+	LOCATION_ID,
+	ITEM_ID,
+	SHOP_ID,
+	SUM(SALES_QTY) AS DAY_SUM_QTY
+FROM
+	SALES_TABLE
+WHERE
+	SALES_DATE = DATE '2025-08-08'
+	AND ITEM_ID = 'MacBook'
+GROUP BY
+	LOCATION_ID,
+	ITEM_ID,
+	SHOP_ID
+),
+shop_sum_result AS (
+SELECT
+	LOCATION_ID,
+	ITEM_ID,
+	SHOP_ID,
+	DAY_SUM_QTY,
+	SUM(DAY_SUM_QTY) OVER (PARTITION BY LOCATION_ID,
+	ITEM_ID) AS shop_sum_qty
+FROM
+	day_sum_result
+ORDER BY
+	LOCATION_ID,
+	ITEM_ID,
+	SHOP_ID
+),
+shop_ratio AS (
+SELECT
+	a.ITEM_ID,
+	a.SHOP_ID,
+	round(sum(a.DAY_SUM_QTY) / sum(a.SHOP_SUM_QTY), 2) AS ratio
+FROM
+	shop_sum_result a
+GROUP BY
+	a.ITEM_ID,
+	a.SHOP_ID
+),
+ranked AS (
+SELECT
+	p.*,
+	SUM(p.delivery_ratio_qty + 50) OVER (PARTITION BY p.location_id,
+	p.item_id) AS sum_fixed_base,
+	ROW_NUMBER() OVER (PARTITION BY p.location_id,
+	p.item_id
+ORDER BY
+	p.RATIO DESC) AS rn_desc,
+	ROW_NUMBER() OVER (PARTITION BY p.location_id,
+	p.item_id
+ORDER BY
+	p.RATIO ASC) AS rn_asc
+FROM
+	(
+	SELECT
+		A.*,
+		B.RATIO,
+		sum(A.delivery_qty) OVER (PARTITION BY a.location_id,
+		b.item_id) AS total_delivery_qty,
+		round(sum(A.delivery_qty) OVER (PARTITION BY a.location_id, b.item_id) * b.RATIO, 0) AS delivery_ratio_qty
+	FROM
+		DELIVERY_TABLE A,
+		shop_ratio B
+	WHERE
+		A.SHOP_ID = B.SHOP_ID
+		AND A.DELIVERY_DATE = DATE '2025-08-08'
+		AND A.LOCATION_ID = 'loc01'
+) p
+),
+adjust_cte (location_id,
+item_id,
+shop_id,
+rn_asc,
+tag,
+SUM_FIXED_BASE,
+TOTAL_DELIVERY_QTY,
+delivery_ratio_qty,
+remaining,
+remaining_diff,
+fixed_qt) AS (
+SELECT
+	r.LOCATION_ID,
+	r.ITEM_ID,
+	r.SHOP_ID,
+	r.RN_ASC,
+	'a' AS tag,
+	r.SUM_FIXED_BASE,
+	r.TOTAL_DELIVERY_QTY,
+	r.DELIVERY_RATIO_QTY,
+	r.remaining_diff AS remaining,
+	r.remaining_diff - (DELIVERY_RATIO_QTY - fixed_qty) AS remaining_diff,
+	r.fixed_qty
+FROM
+	(
+	SELECT
+		r.LOCATION_ID,
+		r.ITEM_ID,
+		r.SHOP_ID,
+		r.RN_ASC,
+		'a' AS tag,
+		r.SUM_FIXED_BASE,
+		r.TOTAL_DELIVERY_QTY,
+		r.DELIVERY_RATIO_QTY,
+		r.SUM_FIXED_BASE - r.TOTAL_DELIVERY_QTY AS remaining_diff,
+		CASE
+			WHEN r.DELIVERY_RATIO_QTY >= (r.sum_fixed_base - total_delivery_qty)
+     THEN r.DELIVERY_RATIO_QTY - (r.sum_fixed_base - total_delivery_qty)
+			ELSE 0
+		END AS fixed_qty
+	FROM
+		ranked r
+	WHERE
+		r.RN_ASC = 1
+		AND r.SUM_FIXED_BASE > r.TOTAL_DELIVERY_QTY
+) r
+UNION ALL
+SELECT
+	r.LOCATION_ID,
+	r.ITEM_ID,
+	r.SHOP_ID,
+	r.RN_ASC,
+	'b' AS tag,
+	r.SUM_FIXED_BASE,
+	r.TOTAL_DELIVERY_QTY,
+	r.DELIVERY_RATIO_QTY,
+	a.remaining,
+	greatest (a.REMAINING_DIFF - r.DELIVERY_RATIO_QTY,
+	0) AS remaining_diff,
+	CASE
+		WHEN a.REMAINING_DIFF <= r.DELIVERY_RATIO_QTY
+     THEN r.DELIVERY_RATIO_QTY - a.REMAINING_DIFF
+		ELSE 0
+	END AS fixed_qty
+FROM
+	ranked r,
+	adjust_cte a
+WHERE
+	r.LOCATION_ID = a.LOCATION_ID
+	AND r.ITEM_ID = a.ITEM_ID
+	AND r.RN_ASC = a.RN_ASC + 1
+)
+SELECT
+	*
+FROM
+	adjust_cte
+WHERE
+	ITEM_ID = 'MacBook'
