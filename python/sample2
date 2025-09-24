@@ -1613,3 +1613,11 @@ ORDER BY location_id, item_id, sales_date;
 
 
 
+CREATE TABLE inventory_txn (
+    location_id   VARCHAR2(20),
+    item_id       VARCHAR2(20),
+    sales_date    DATE,
+    receipts_qty  NUMBER,
+    sales_qty     NUMBER
+);
+
