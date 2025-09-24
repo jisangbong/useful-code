@@ -1357,3 +1357,159 @@ ORDER BY location_id, item_id, sales_date;
 
 
 
+
+WITH inv_cte (
+    location_id, item_id, sales_date,
+    receipts_qty, sales_qty,
+    inventory_qty
+) AS (
+    -- Anchor: earliest sales_date per item
+    SELECT t.location_id,
+           t.item_id,
+           t.sales_date,
+           t.receipts_qty,
+           t.sales_qty,
+           (0 + t.receipts_qty - t.sales_qty) AS inventory_qty
+    FROM inventory_txn t
+    WHERE (t.location_id, t.item_id, t.sales_date) IN (
+        SELECT location_id, item_id, MIN(sales_date)
+        FROM inventory_txn
+        GROUP BY location_id, item_id
+    )
+    UNION ALL
+    -- Recursive: next closest sales_date
+    SELECT t.location_id,
+           t.item_id,
+           t.sales_date,
+           t.receipts_qty,
+           t.sales_qty,
+           (a.inventory_qty + t.receipts_qty - t.sales_qty) AS inventory_qty
+    FROM inv_cte a
+    JOIN inventory_txn t
+      ON t.location_id = a.location_id
+     AND t.item_id     = a.item_id
+     AND t.sales_date = (
+            SELECT MIN(s2.sales_date)
+            FROM inventory_txn s2
+            WHERE s2.location_id = a.location_id
+              AND s2.item_id     = a.item_id
+              AND s2.sales_date  > a.sales_date
+       )
+)
+SEARCH DEPTH FIRST BY sales_date SET seq_col
+CYCLE location_id, item_id, sales_date
+    SET cycle_mark TO 'Y' DEFAULT 'N'
+SELECT location_id,
+       item_id,
+       sales_date,
+       receipts_qty,
+       sales_qty,
+       inventory_qty,
+       seq_col
+FROM inv_cte
+WHERE cycle_mark = 'N'
+ORDER BY location_id, item_id, sales_date;
+
+
+
+
+
+WITH combos AS (
+  -- distinct combos and their date range (ignore NULL keys)
+  SELECT location_id,
+         item_id,
+         MIN(sales_date) AS min_date,
+         MAX(sales_date) AS max_date
+  FROM inventory_txn
+  WHERE location_id IS NOT NULL
+    AND item_id     IS NOT NULL
+  GROUP BY location_id, item_id
+),
+nums AS (
+  -- number generator up to the largest span across combos
+  SELECT LEVEL AS n
+  FROM dual
+  CONNECT BY LEVEL <= (
+    SELECT NVL(MAX(max_date - min_date + 1), 0) FROM combos
+  )
+),
+calendar AS (
+  -- expand each combo into every date from min_date .. max_date
+  SELECT c.location_id,
+         c.item_id,
+         c.min_date + (n.n - 1) AS sales_date
+  FROM combos c
+  JOIN nums n
+    ON n.n <= (c.max_date - c.min_date + 1)
+),
+base AS (
+  -- left-join actual transactions so missing days get zeros
+  SELECT cal.location_id,
+         cal.item_id,
+         cal.sales_date,
+         NVL(t.receipts_qty, 0) AS receipts_qty,
+         NVL(t.sales_qty,   0) AS sales_qty,
+         CASE WHEN t.location_id IS NULL THEN 1 ELSE 0 END AS is_blank
+  FROM calendar cal
+  LEFT JOIN inventory_txn t
+    ON t.location_id = cal.location_id
+   AND t.item_id     = cal.item_id
+   AND t.sales_date  = cal.sales_date
+),
+first_day AS (
+  -- first calendar date per combo (anchor for recursion)
+  SELECT location_id, item_id, MIN(sales_date) AS first_date
+  FROM base
+  GROUP BY location_id, item_id
+),
+inv_cte (
+    location_id, item_id, sales_date,
+    receipts_qty, sales_qty,
+    inventory_qty
+) AS (
+  -- anchor: start at each combo's first_date, opening inventory = 0 (change if you have opening stock)
+  SELECT b.location_id,
+         b.item_id,
+         b.sales_date,
+         b.receipts_qty,
+         b.sales_qty,
+         -- apply blank-day penalty when both receipts & sales are zero
+         (0 + b.receipts_qty - b.sales_qty
+           - CASE WHEN b.receipts_qty = 0 AND b.sales_qty = 0 THEN 10 ELSE 0 END
+         ) AS inventory_qty
+  FROM base b
+  JOIN first_day f
+    ON b.location_id = f.location_id
+   AND b.item_id     = f.item_id
+   AND b.sales_date  = f.first_date
+  UNION ALL
+  -- recursive: next calendar day for same combo
+  SELECT b.location_id,
+         b.item_id,
+         b.sales_date,
+         b.receipts_qty,
+         b.sales_qty,
+         (a.inventory_qty
+           + b.receipts_qty
+           - b.sales_qty
+           - CASE WHEN b.receipts_qty = 0 AND b.sales_qty = 0 THEN 10 ELSE 0 END
+         ) AS inventory_qty
+  FROM inv_cte a
+  JOIN base b
+    ON b.location_id = a.location_id
+   AND b.item_id     = a.item_id
+   AND b.sales_date  = a.sales_date + 1
+)
+SELECT location_id,
+       item_id,
+       sales_date,
+       receipts_qty,
+       sales_qty,
+       inventory_qty
+FROM inv_cte
+ORDER BY location_id, item_id, sales_date;
+
+
+
+
+
