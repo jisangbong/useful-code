@@ -1621,3 +1621,135 @@ CREATE TABLE inventory_txn (
     sales_qty     NUMBER
 );
 
+
+
+
+
+
+WITH base AS (
+    -- combine deliveries and sales per day per product
+    SELECT d.location_id,
+           d.item_id,
+           d.shop_id,
+           d.delivery_date AS tx_date,
+           NVL(SUM(d.delivery_qty), 0) AS delivery_qty,
+           0 AS sales_qty
+    FROM delivery_table d
+    WHERE d.delivery_date >= DATE '2025-09-01'
+    GROUP BY d.location_id, d.item_id, d.shop_id, d.delivery_date
+    UNION ALL
+    SELECT s.location_id,
+           s.item_id,
+           s.shop_id,
+           s.sales_date AS tx_date,
+           0 AS delivery_qty,
+           NVL(SUM(s.sales_qty), 0) AS sales_qty
+    FROM sales_table s
+    WHERE s.sales_date >= DATE '2025-09-01'
+    GROUP BY s.location_id, s.item_id, s.shop_id, s.sales_date
+),
+calendar AS (
+    -- list all distinct (loc,item,shop) that appear in September
+    SELECT DISTINCT location_id, item_id, shop_id
+    FROM base
+),
+anchors AS (
+    -- get August 31 inventory
+    SELECT i.location_id,
+           i.item_id,
+           i.shop_id,
+           DATE '2025-08-31' AS tx_date,
+           0 AS delivery_qty,
+           0 AS sales_qty,
+           i.inventory_qty AS inventory_qty
+    FROM inventory_table i
+    UNION ALL
+    -- add missing items (new ones) with zero opening inventory
+    SELECT c.location_id,
+           c.item_id,
+           c.shop_id,
+           DATE '2025-08-31' AS tx_date,
+           0, 0, 0
+    FROM calendar c
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM inventory_table i
+        WHERE i.location_id = c.location_id
+          AND i.item_id     = c.item_id
+          AND i.shop_id     = c.shop_id
+    )
+),
+merged AS (
+    -- join deliveries and sales together
+    SELECT b.location_id,
+           b.item_id,
+           b.shop_id,
+           b.tx_date,
+           SUM(b.delivery_qty) AS delivery_qty,
+           SUM(b.sales_qty)    AS sales_qty,
+           0                   AS inventory_qty
+    FROM base b
+    GROUP BY b.location_id, b.item_id, b.shop_id, b.tx_date
+),
+all_days AS (
+    SELECT * FROM anchors
+    UNION ALL
+    SELECT * FROM merged
+),
+inv_cte (
+    location_id,
+    item_id,
+    shop_id,
+    tx_date,
+    delivery_qty,
+    sales_qty,
+    inventory_qty
+) AS (
+    -- anchor: Aug 31
+    SELECT a.location_id,
+           a.item_id,
+           a.shop_id,
+           a.tx_date,
+           a.delivery_qty,
+           a.sales_qty,
+           a.inventory_qty
+    FROM anchors a
+    UNION ALL
+    -- recursive: next day inventory
+    SELECT b.location_id,
+           b.item_id,
+           b.shop_id,
+           b.tx_date,
+           b.delivery_qty,
+           b.sales_qty,
+           (a.inventory_qty + b.delivery_qty - b.sales_qty) AS inventory_qty
+    FROM inv_cte a
+    JOIN all_days b
+      ON b.location_id = a.location_id
+     AND b.item_id     = a.item_id
+     AND b.shop_id     = a.shop_id
+     AND b.tx_date     = a.tx_date + 1
+)
+SELECT *
+FROM inv_cte
+WHERE location_id = 'loc01'
+AND SHOP_ID = 'BestBuy'
+AND TX_DATE < DATE '2025-09-02'
+ORDER BY location_id, item_id, shop_id, tx_date;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
