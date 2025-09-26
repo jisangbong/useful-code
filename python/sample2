@@ -1741,7 +1741,17 @@ ORDER BY location_id, item_id, shop_id, tx_date;
 
 
 
-
+SELECT
+    COALESCE(a.id, b.id, c.id) AS common_id,
+    a.col_a,
+    b.col_b,
+    c.col_c
+FROM
+    TableA a
+FULL OUTER JOIN
+    TableB b ON a.id = b.id
+FULL OUTER JOIN
+    TableC c ON COALESCE(a.id, b.id) = c.id;
 
 
 
