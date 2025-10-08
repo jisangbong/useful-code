@@ -1792,3 +1792,72 @@ FROM INVENTORY_TABLE a;
 
 
 
+
+
+
+
+
+
+
+
+
+
+WITH /*+ MATERIALIZE */ sales_agg AS (
+    SELECT location_id, item_id, SUM(sales_qty) AS sales_qty
+    FROM sales_table
+    GROUP BY location_id, item_id
+),
+/*+ MATERIALIZE */ delivery_agg AS (
+    SELECT location_id, item_id, SUM(delivery_qty) AS delivery_qty
+    FROM delivery_table
+    GROUP BY location_id, item_id
+),
+/*+ MATERIALIZE */ inventory_agg AS (
+    SELECT location_id, item_id, MAX(inventory_qty) AS inventory_qty
+    FROM inventory_table
+    GROUP BY location_id, item_id
+)
+SELECT /*+ LEADING(s d i) USE_HASH(d) USE_NL(i) */
+       s.location_id,
+       s.item_id,
+       NVL(i.inventory_qty,0)
+         + NVL(d.delivery_qty,0)
+         - NVL(s.sales_qty,0) AS end_inventory
+FROM sales_agg s
+LEFT JOIN delivery_agg d ON s.location_id = d.location_id AND s.item_id = d.item_id
+LEFT JOIN inventory_agg i ON s.location_id = i.location_id AND s.item_id = i.item_id;
+
+
+
+SELECT /*+ LEADING(s d i) USE_HASH(d) USE_NL(i) */
+       s.location_id, s.item_id, s.sales_qty, d.delivery_qty, i.inventory_qty
+FROM sales_agg s
+LEFT JOIN delivery_agg d ON ...
+LEFT JOIN inventory_agg i ON ...;
+
+
+
+| Hint                     | Behavior                               | Typical Use                 |
+| ------------------------ | -------------------------------------- | --------------------------- |
+| `/*+ MATERIALIZE */`     | Forces Oracle to compute and store CTE | Reused or large CTEs        |
+| `/*+ INLINE */`          | Forces Oracle to inline the CTE        | Single-use small CTEs       |
+| `/*+ USE_NL(alias) */`   | Nested Loop join                       | Small indexed tables        |
+| `/*+ USE_HASH(alias) */` | Hash join                              | Large unindexed tables      |
+| `/*+ LEADING(a b c) */`  | Fix join order                         | Prevents bad optimizer plan |
+
+
+| Hint                     | Meaning            | Use when                                     |
+| ------------------------ | ------------------ | -------------------------------------------- |
+| `USE_NL(table_alias)`    | Nested Loop join   | Small dataset on right side, good indexes    |
+| `USE_HASH(table_alias)`  | Hash Join          | Large datasets, memory is available          |
+| `USE_MERGE(table_alias)` | Sort-Merge Join    | Both sides large, and join keys are sorted   |
+| `LEADING(a b c)`         | Control join order | When Oracle picks a poor order automatically |
+
+
+
+
+
+
+
+
+
