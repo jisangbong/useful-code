@@ -1864,3 +1864,10 @@ WHERE NVL(customer_name, 'NULL_FLAG') = 'NULL_FLAG';
 
 
 
+| Situation                             | Example hint             | Why it helps                |
+| ------------------------------------- | ------------------------ | --------------------------- |
+| Oracle chooses wrong join order       | `LEADING(table1 table2)` | Force correct driving table |
+| Oracle picks a slow join type         | `USE_HASH`, `USE_MERGE`  | Control join algorithm      |
+| You need to avoid index for full scan | `FULL(table1)`           | Override bad index usage    |
+| You want parallel execution           | `PARALLEL(table1, 4)`    | Speed up big queries        |
+| You’re tuning a complex view or CTE   | `MATERIALIZE`, `INLINE`  | Control subquery evaluation |
