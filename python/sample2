@@ -1857,6 +1857,9 @@ LEFT JOIN inventory_agg i ON ...;
 
 
 
+SELECT *
+FROM customers
+WHERE NVL(customer_name, 'NULL_FLAG') = 'NULL_FLAG';
 
 
 
