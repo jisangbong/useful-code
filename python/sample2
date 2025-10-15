@@ -1871,3 +1871,20 @@ WHERE NVL(customer_name, 'NULL_FLAG') = 'NULL_FLAG';
 | You need to avoid index for full scan | `FULL(table1)`           | Override bad index usage    |
 | You want parallel execution           | `PARALLEL(table1, 4)`    | Speed up big queries        |
 | You’re tuning a complex view or CTE   | `MATERIALIZE`, `INLINE`  | Control subquery evaluation |
+
+
+
+SELECT * FROM v$lock WHERE block > 0;
+SELECT sid, event, p1text, p2text, p3text, wait_time, seconds_in_wait
+FROM v$session
+WHERE wait_class != 'Idle';
+
+
+
+
+
+
+
+
+
+
