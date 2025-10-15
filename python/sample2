@@ -1879,7 +1879,9 @@ SELECT sid, event, p1text, p2text, p3text, wait_time, seconds_in_wait
 FROM v$session
 WHERE wait_class != 'Idle';
 
-
+--enq: TX - row lock contention
+--buffer busy waits
+--log file sync
 
 
 
