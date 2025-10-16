@@ -1873,6 +1873,10 @@ WHERE NVL(customer_name, 'NULL_FLAG') = 'NULL_FLAG';
 | You’re tuning a complex view or CTE   | `MATERIALIZE`, `INLINE`  | Control subquery evaluation |
 
 
+SELECT /*+ USE_HASH(a b c d e f) PARALLEL(4) */
+...
+
+
 
 SELECT * FROM v$lock WHERE block > 0;
 SELECT sid, event, p1text, p2text, p3text, wait_time, seconds_in_wait
