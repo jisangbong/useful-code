@@ -1876,6 +1876,8 @@ WHERE NVL(customer_name, 'NULL_FLAG') = 'NULL_FLAG';
 SELECT /*+ USE_HASH(a b c d e f) PARALLEL(4) */
 ...
 
+SELECT /*+ LEADING(a) USE_HASH(b c d e f) */
+
 
 
 SELECT * FROM v$lock WHERE block > 0;
