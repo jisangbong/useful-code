@@ -1891,6 +1891,27 @@ WHERE wait_class != 'Idle';
 
 
 
+ALTER SESSION ENABLE PARALLEL DML;
+
+INSERT /*+ APPEND PARALLEL(big_table 8) PARALLEL(target_table 8) */ INTO target_table
+SELECT col1, col2, SUM(col3)
+FROM big_table
+GROUP BY col1, col2;
+COMMIT;
+
+
+INSERT INTO temp_stage
+SELECT col1, col2, SUM(col3)
+FROM big_table
+GROUP BY col1, col2;
+
+INSERT INTO target_table
+SELECT * FROM temp_stage;
+
+
+
+
+
 
 
 
