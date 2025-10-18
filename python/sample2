@@ -1909,7 +1909,13 @@ INSERT INTO target_table
 SELECT * FROM temp_stage;
 
 
+SELECT * FROM v$sql
+WHERE sql_text LIKE '%/* test query */%'
 
+SELECT * FROM v$sql_plan WHERE sql_id = '4a73s0scm16mr'
+
+SELECT * FROM
+table(dbms_xplan.display_cursor('4a73s0scm16mr'))
 
 
 
