@@ -1947,3 +1947,20 @@ select * from table(dbms_xplan.display_cursor(''));
 
 
 
+DECLARE
+  v_start NUMBER;
+  v_end   NUMBER;
+BEGIN
+  v_start := DBMS_UTILITY.get_time;  -- time in 1/100ths of a second
+
+  -- your query here
+  FOR r IN (SELECT /*+ FULL(your_table) */ * FROM your_table WHERE your_condition) LOOP
+    NULL;
+  END LOOP;
+
+  v_end := DBMS_UTILITY.get_time;
+  DBMS_OUTPUT.put_line('Elapsed time: ' || TO_CHAR((v_end - v_start)/100) || ' seconds');
+END;
+
+
+
