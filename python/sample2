@@ -1964,3 +1964,11 @@ END;
 
 
 
+SELECT index_name, status
+FROM user_indexes
+WHERE table_name = 'SALES';
+
+INDEX_NAME           STATUS
+-------------------- --------
+SALES_IDX_CUSTOMER   UNUSABLE
+SALES_IDX_DATE       UNUSABLE
