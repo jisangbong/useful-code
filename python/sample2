@@ -1972,3 +1972,88 @@ INDEX_NAME           STATUS
 -------------------- --------
 SALES_IDX_CUSTOMER   UNUSABLE
 SALES_IDX_DATE       UNUSABLE
+
+
+
+-- Detect if a session is waiting
+SELECT
+    s.sid,
+    s.serial#,
+    s.username,
+    s.status,
+    s.event,
+    s.wait_class,
+    s.seconds_in_wait,
+    s.state,
+    s.sql_id,
+    s.program
+FROM v$session s
+WHERE s.username IS NOT NULL
+  AND s.status = 'ACTIVE'
+ORDER BY s.seconds_in_wait DESC;
+
+
+-- See what SQL is actually running
+SELECT sql_text
+FROM v$sql
+WHERE sql_id = '&&sql_id';
+
+
+-- Check if it’s waiting on locks (very common)
+SELECT
+    l1.sid AS waiting_session,
+    s1.username AS waiting_user,
+    l2.sid AS blocking_session,
+    s2.username AS blocking_user,
+    l1.id1, l1.id2, l1.lmode, l1.request
+FROM v$lock l1
+JOIN v$lock l2
+  ON l1.id1 = l2.id1 AND l1.id2 = l2.id2
+JOIN v$session s1 ON l1.sid = s1.sid
+JOIN v$session s2 ON l2.sid = s2.sid
+WHERE l1.block = 0 AND l2.block = 1;
+
+
+-- Optional: see the overall wait breakdown
+SELECT event, total_waits, time_waited, average_wait
+FROM v$system_event
+WHERE wait_class <> 'Idle'
+ORDER BY time_waited DESC;
+
+
+-- Check blocking objects (what table or row?)
+SELECT
+    s.sid,
+    s.serial#,
+    s.username,
+    o.object_name,
+    o.object_type
+FROM v$session s
+JOIN v$locked_object lo ON s.sid = lo.session_id
+JOIN all_objects o ON lo.object_id = o.object_id;
+
+
+-- (Optional) — Use V$ACTIVE_SESSION_HISTORY (if you have the Diagnostic Pack)
+SELECT sample_time, session_id, session_state, event, wait_class, sql_id
+FROM v$active_session_history
+WHERE session_id = 288
+ORDER BY sample_time DESC;
+
+
+-- Tip: To find your current session
+SELECT sid, serial#, username, program
+FROM v$session
+WHERE audsid = USERENV('SESSIONID');
+
+
+Summary
+Purpose	View / Query
+Check current waits	v$session
+Find blocking sessions	v$lock, v$session
+See SQL causing delay	v$sql
+Check which object is locked	v$locked_object, all_objects
+Historical wait analysis	v$active_session_history (Diag. Pack)
+
+
+
+
