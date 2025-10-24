@@ -2056,4 +2056,4 @@ Historical wait analysis	v$active_session_history (Diag. Pack)
 
 
 
-
+/*+ star_transformation fact(s)*/
