@@ -2057,3 +2057,12 @@ Historical wait analysis	v$active_session_history (Diag. Pack)
 
 
 /*+ star_transformation fact(s)*/
+
+CALL DBMS_STATS.GATHER_TABLE_STATS('schema_name', 'table_name');
+
+
+
+
+
+
+
