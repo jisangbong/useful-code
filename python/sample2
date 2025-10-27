@@ -2100,6 +2100,20 @@ END;
 
 
 
+DECLARE
+  v_total NUMBER;
+  v_deleted NUMBER := 0;
+BEGIN
+  SELECT COUNT(*) INTO v_total FROM big_table WHERE condition;
+
+  WHILE v_deleted < v_total LOOP
+    DELETE FROM big_table
+     WHERE condition
+       AND ROWNUM <= 50000;
+    v_deleted := v_deleted + SQL%ROWCOUNT;
+    COMMIT;
+  END LOOP;
+END;
 
 
 
