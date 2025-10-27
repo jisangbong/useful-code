@@ -2074,7 +2074,29 @@ BEGIN
     EXIT WHEN v_rows = 0;
   END LOOP;
 END;
-/
+
+
+
+DECLARE
+  v_rows NUMBER;
+  v_start NUMBER;
+  v_end   NUMBER;
+BEGIN
+  LOOP
+    v_start := DBMS_UTILITY.get_time;
+
+    DELETE FROM big_table
+     WHERE condition
+       AND ROWNUM <= 50000;  -- initial batch size
+    v_rows := SQL%ROWCOUNT;
+    COMMIT;
+
+    v_end := DBMS_UTILITY.get_time;
+    DBMS_OUTPUT.PUT_LINE('Deleted '||v_rows||' rows in '||(v_end-v_start)/100||' seconds.');
+
+    EXIT WHEN v_rows = 0;
+  END LOOP;
+END;
 
 
 
