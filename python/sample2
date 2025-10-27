@@ -2062,6 +2062,21 @@ CALL DBMS_STATS.GATHER_TABLE_STATS('schema_name', 'table_name');
 
 
 
+DECLARE
+  v_rows NUMBER;
+BEGIN
+  LOOP
+    DELETE FROM big_table
+     WHERE condition
+       AND ROWNUM <= 10000;  -- delete 10,000 rows per loop
+    v_rows := SQL%ROWCOUNT;
+    COMMIT;
+    EXIT WHEN v_rows = 0;
+  END LOOP;
+END;
+/
+
+
 
 
 
