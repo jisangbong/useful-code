@@ -1880,6 +1880,7 @@ SELECT /*+ LEADING(a) USE_HASH(b c d e f) */
 
 /*+ LEADING(a b c) */
 
+/*+ LEADING(a) USE_NL(b c d e f) */
 
 
 
