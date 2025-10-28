@@ -1878,6 +1878,9 @@ SELECT /*+ USE_HASH(a b c d e f) PARALLEL(4) */
 
 SELECT /*+ LEADING(a) USE_HASH(b c d e f) */
 
+/*+ LEADING(a b c) */
+
+
 
 
 SELECT * FROM v$lock WHERE block > 0;
