@@ -2121,3 +2121,70 @@ END;
 
 
 
+
+
+SELECT 
+    location_id,
+    sales_date,
+    SUM(quantity) AS total_qty,
+    CASE 
+        WHEN SUM(CASE WHEN item_name LIKE '%iPhone%' THEN 1 ELSE 0 END) > 0 
+        THEN 'Y'
+        ELSE 'N'
+    END AS contains_iphone
+FROM sales_table
+GROUP BY location_id, sales_date;
+
+
+SELECT 
+    location_id,
+    sales_date,
+    SUM(quantity) AS total_qty,
+    MAX(is_iphone) AS contains_iphone
+FROM (
+    SELECT 
+        location_id,
+        sales_date,
+        item_name,
+        quantity,
+        CASE 
+            WHEN item_name LIKE '%iPhone%' THEN 1
+            ELSE 0
+        END AS is_iphone
+    FROM sales_table
+)
+GROUP BY location_id, sales_date;
+
+
+SELECT
+    location_id,
+    sales_date,
+    SUM(quantity) AS total_qty,
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 
+            FROM sales_table s2
+            WHERE s2.location_id = sales_table.location_id
+              AND s2.sales_date = sales_table.sales_date
+              AND s2.item_name LIKE '%iPhone%'
+        ) THEN 'Y'
+        ELSE 'N'
+    END AS contains_iphone
+FROM sales_table
+GROUP BY location_id, sales_date;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
