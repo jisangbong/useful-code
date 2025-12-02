@@ -2176,6 +2176,8 @@ GROUP BY location_id, sales_date;
 
 
 
+WHERE ( rec.col1 IS NOT NULL AND salesid = rec.col1 )
+   OR ( rec.col1 IS NULL AND salesid IS NULL )
 
 
 
