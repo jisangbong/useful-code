@@ -2210,6 +2210,17 @@ PARTITION BY RANGE (sale_date) (
 );
 
 
+CREATE TABLE sales_fact (
+    sales_date DATE NOT NULL,
+    location_id VARCHAR2(10),
+    item_id VARCHAR2(20),
+    sales_qty NUMBER
+)
+PARTITION BY RANGE (sales_date)
+INTERVAL (NUMTOYMINTERVAL(1, 'YEAR'))
+(
+    PARTITION p_init VALUES LESS THAN (DATE '2025-01-01')
+);
 
 
 
