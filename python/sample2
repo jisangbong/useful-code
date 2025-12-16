@@ -2330,3 +2330,18 @@ INTERVAL (NUMTODSINTERVAL(1, 'DAY'))
     PARTITION p_init VALUES LESS THAN (DATE '2025-01-01')
 );
 
+
+
+ALTER TABLE sales_fact
+DROP PARTITION FOR (TRUNC(SYSDATE) - 15);
+
+How do I execute this command in an Oracle procedure?
+
+
+
+
+
+
+
+
+
