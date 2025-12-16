@@ -2181,6 +2181,21 @@ WHERE ( rec.col1 IS NOT NULL AND salesid = rec.col1 )
 
 
 
+CREATE TABLE high_volume_data (
+    data_key     VARCHAR2(8) NOT NULL, -- e.g., '202510FR'
+    ... -- other data columns
+    record_date  DATE GENERATED ALWAYS AS (
+        TO_DATE(SUBSTR(data_key, 1, 6) || SUBSTR(data_key, 7, 2), 'YYYYIWDD') 
+        -- Note: Adjust date format model ('YYYYIWDD') based on your exact week/day calculation logic
+    ) VIRTUAL
+)
+PARTITION BY RANGE (record_date)
+INTERVAL (NUMTODSINTERVAL(1, 'DAY')) -- Automatically create 1-day interval partitions
+(
+    -- Initial range partition (transition point). 
+    -- Data before this date goes here, new data after this date creates interval partitions.
+    PARTITION p_initial VALUES LESS THAN (TO_DATE('2025-01-01', 'YYYY-MM-DD'))
+);
 
 
 
