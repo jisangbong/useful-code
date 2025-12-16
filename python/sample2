@@ -2224,5 +2224,52 @@ INTERVAL (NUMTOYMINTERVAL(1, 'YEAR'))
 
 
 
+CREATE TABLE your_table (
+    data_key        VARCHAR2(10) NOT NULL, -- e.g., '202510FR'
+    ... -- other columns
+    
+    -- Virtual Column to extract a standard date for the key
+    -- This assumes you have a way to translate '202510FR' into a valid DATE
+    -- A simple approach might be to use a numeric value for partitioning
+    -- (e.g., 202510) and manage the "day of week" within the partition.
+    -- However, a date is best for rolling windows.
+    partition_date AS (
+        -- COMPLEX FUNCTION to convert 'YYYYWWDD' format to a DATE
+        TO_DATE(SUBSTR(data_key, 1, 6) || '1', 'YYYYIWID') 
+        + DECODE(SUBSTR(data_key, 7, 2), 
+                 'SU', 0, 'MO', 1, 'TU', 2, 'WE', 3, 
+                 'TH', 4, 'FR', 5, 'SA', 6)
+        -- The above is a simplified example, your actual key-to-date logic 
+        -- will depend on your specific week/day definition (ISO vs. Oracle default)
+    ) VIRTUAL
+)
+PARTITION BY RANGE (partition_date)
+...;
+
+
+CREATE TABLE your_data_table (
+    data_key        VARCHAR2(10) NOT NULL, -- e.g., '202510FR'
+    ... -- other columns
+
+    -- Virtual Column (the actual partition key, assuming you can derive a date)
+    record_date AS (
+        -- Replace this with your actual conversion logic for '202510FR' -> DATE
+        -- For this example, we'll assume a virtual column named 'record_date' exists.
+        TO_DATE('202510FR', 'YYYYIWID') -- Placeholder for real conversion
+    ) VIRTUAL
+)
+PARTITION BY RANGE (record_date)
+INTERVAL (NUMTODSINTERVAL(1, 'DAY')) -- Auto-create a new partition every day
+(
+    -- Initial required partition (a baseline or catch-all for old data)
+    PARTITION p_initial VALUES LESS THAN (DATE '2025-01-01')
+);
+
+
+ALTER TABLE your_data_table DROP PARTITION FOR (DATE '2025-10-10')
+-- Oracle automatically identifies and drops the partition corresponding to that date.
+-- (Use a calculated date in your real-world automation, like SYSDATE - 15)
+
+
 
 
