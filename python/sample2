@@ -2297,4 +2297,36 @@ CREATE TABLE sales_fact (
 );
 
 
+CREATE TABLE sales_fact (
+    period_key  VARCHAR2(8) NOT NULL,  -- e.g. 202510FR
+
+    sales_date  DATE
+      GENERATED ALWAYS AS (
+        TRUNC(
+          TO_DATE(SUBSTR(period_key, 1, 4) || '0104', 'YYYYMMDD'),
+          'IW'
+        )
+        + (TO_NUMBER(SUBSTR(period_key, 5, 2)) - 1) * 7
+        + CASE SUBSTR(period_key, 7, 2)
+            WHEN 'MO' THEN 0
+            WHEN 'TU' THEN 1
+            WHEN 'WE' THEN 2
+            WHEN 'TH' THEN 3
+            WHEN 'FR' THEN 4
+            WHEN 'SA' THEN 5
+            WHEN 'SU' THEN 6
+          END
+      ) VIRTUAL,
+
+    location_id VARCHAR2(10),
+    item_id     VARCHAR2(20),
+    sales_qty   NUMBER
+)
+PARTITION BY RANGE (sales_date)
+INTERVAL (NUMTODSINTERVAL(1, 'DAY'))
+--INTERVAL (NUMTOYMINTERVAL(1, 'MONTH'))
+--INTERVAL (NUMTOYMINTERVAL(1, 'YEAR'))
+(
+    PARTITION p_init VALUES LESS THAN (DATE '2025-01-01')
+);
 
