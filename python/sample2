@@ -2198,6 +2198,16 @@ INTERVAL (NUMTODSINTERVAL(1, 'DAY')) -- Automatically create 1-day interval part
 );
 
 
+CREATE TABLE sales (
+    sale_id NUMBER,
+    sale_date DATE,
+    amount NUMBER
+)
+PARTITION BY RANGE (sale_date) (
+    PARTITION p_sales_2023 VALUES LESS THAN (TO_DATE('2024-01-01', 'YYYY-MM-DD')), -- 2023년 데이터
+    PARTITION p_sales_2024 VALUES LESS THAN (TO_DATE('2025-01-01', 'YYYY-MM-DD')), -- 2024년 데이터
+    PARTITION p_sales_future VALUES LESS THAN (MAXVALUE) -- 2025년 이후 모든 데이터
+);
 
 
 
