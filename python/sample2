@@ -2339,7 +2339,64 @@ How do I execute this command in an Oracle procedure?
 
 
 
+CREATE OR REPLACE PROCEDURE drop_old_partition AS
+    v_sql VARCHAR2(4000);
+BEGIN
+    v_sql :=
+        'ALTER TABLE sales_fact DROP PARTITION FOR (DATE ''' ||
+        TO_CHAR(TRUNC(SYSDATE) - 15, 'YYYY-MM-DD') ||
+        ''')';
 
+    EXECUTE IMMEDIATE v_sql;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        -- ORA-14010: partition does not exist
+        IF SQLCODE = -14010 THEN
+            NULL; -- ignore
+        ELSE
+            RAISE;
+        END IF;
+END;
+/
+
+
+CREATE OR REPLACE PROCEDURE drop_old_partition AS
+    v_part_name user_tab_partitions.partition_name%TYPE;
+BEGIN
+    SELECT partition_name
+    INTO   v_part_name
+    FROM   user_tab_partitions
+    WHERE  table_name = 'SALES_FACT'
+    AND    high_value =
+           'TO_DATE(''' ||
+           TO_CHAR(TRUNC(SYSDATE) - 15, 'YYYY-MM-DD') ||
+           ''',''YYYY-MM-DD'')';
+
+    EXECUTE IMMEDIATE
+        'ALTER TABLE sales_fact DROP PARTITION ' || v_part_name;
+
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        NULL; -- partition not found, nothing to drop
+END;
+/
+
+
+BEGIN
+    DBMS_SCHEDULER.create_job (
+        job_name        => 'DROP_OLD_SALES_PART',
+        job_type        => 'STORED_PROCEDURE',
+        job_action      => 'DROP_OLD_PARTITION',
+        start_date      => SYSTIMESTAMP,
+        repeat_interval => 'FREQ=DAILY;BYHOUR=01',
+        enabled         => TRUE
+    );
+END;
+/
+
+ALTER TABLE sales_fact
+DROP PARTITION FOR (TRUNC(SYSDATE) - 15);
 
 
 
