@@ -2402,3 +2402,73 @@ DROP PARTITION FOR (TRUNC(SYSDATE) - 15);
 
 
 
+
+
+SELECT
+    item,
+    inventory_date,
+
+    /* BEGINNING_INVENTORY */
+    CASE
+        WHEN rn = 1 THEN beginning_inventory
+        ELSE
+            first_begin_inv
+            + running_delta
+            - (receipts - shipments - expected_sales)
+    END AS beginning_inventory,
+
+    receipts,
+    shipments,
+    expected_sales,
+
+    /* ENDING_INVENTORY */
+    first_begin_inv
+    + running_delta AS ending_inventory
+
+FROM (
+    SELECT
+        item,
+        inventory_date,
+        beginning_inventory,
+        receipts,
+        shipments,
+        expected_sales,
+
+        /* Row number per ITEM (no hardcoded dates) */
+        ROW_NUMBER() OVER (
+            PARTITION BY item
+            ORDER BY inventory_date
+        ) AS rn,
+
+        /* First beginning inventory per ITEM */
+        FIRST_VALUE(beginning_inventory) OVER (
+            PARTITION BY item
+            ORDER BY inventory_date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS first_begin_inv,
+
+        /* Cumulative inventory change */
+        SUM(receipts - shipments - expected_sales) OVER (
+            PARTITION BY item
+            ORDER BY inventory_date
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS running_delta
+
+    FROM inventory_daily
+    WHERE inventory_date BETWEEN DATE '2025-12-01' AND DATE '2025-12-31'
+)
+ORDER BY item, inventory_date;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
