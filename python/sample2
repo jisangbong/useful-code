@@ -2577,6 +2577,21 @@ ORDER BY item, inventory_date;
 
 
 
+SELECT
+    d.cal_date AS inventory_date,
+    s.item,
+    s.inventory_qty
+FROM calendar_dim d
+JOIN inventory_snapshot s
+  ON s.inventory_date = (
+        SELECT MAX(s2.inventory_date)
+        FROM inventory_snapshot s2
+        WHERE s2.item = s.item
+          AND s2.inventory_date < d.cal_date
+     )
+WHERE d.cal_date <= DATE '2025-12-31'
+  AND s.inventory_qty > 0
+ORDER BY s.item, d.cal_date;
 
 
 
