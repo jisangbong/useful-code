@@ -2467,6 +2467,38 @@ ORDER BY item, inventory_date;
 
 
 
+
+SELECT
+    item,
+    start_date,
+    end_date,
+    inventory_qty
+FROM (
+    SELECT
+        item,
+        inventory_date AS start_date,
+
+        /* End date = day before next snapshot */
+        LEAST(
+            NVL(
+                LEAD(inventory_date) OVER (
+                    PARTITION BY item
+                    ORDER BY inventory_date
+                ) - 1,
+                DATE '2025-12-31'
+            ),
+            DATE '2025-12-31'
+        ) AS end_date,
+
+        inventory_qty
+    FROM inventory_snapshot
+)
+WHERE inventory_qty > 0
+ORDER BY item, start_date;
+
+
+
+
 SELECT
     item,
     inventory_date,
