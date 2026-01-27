@@ -2607,7 +2607,9 @@ FROM TABLE(
   )
 );
 
-
+SELECT name, value, ismodified, description
+FROM v$parameter
+WHERE name = 'query_rewrite_enabled';
 
 
 
