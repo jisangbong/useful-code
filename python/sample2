@@ -2594,6 +2594,18 @@ WHERE d.cal_date <= DATE '2025-12-31'
 ORDER BY s.item, d.cal_date;
 
 
+SELECT sql_id, sql_text
+FROM v$sql
+WHERE sql_text LIKE '%MERGE INTO ITEM_DETAIL%';
+
+SELECT *
+FROM TABLE(
+  DBMS_XPLAN.DISPLAY_CURSOR(
+    NULL,
+    NULL,
+    'ALL +PREDICATE +OUTLINE +NOTE'
+  )
+);
 
 
 
