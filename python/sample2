@@ -2611,7 +2611,20 @@ SELECT name, value, ismodified, description
 FROM v$parameter
 WHERE name = 'query_rewrite_enabled';
 
+UPDATE INVENTORY_DAILY
+SET ENDING_INVENTORY = BEGINNING_INVENTORY - RECEIPTS + SHIPMENTS
+WHERE ENDING_INVENTORY <> BEGINNING_INVENTORY - RECEIPTS + SHIPMENTS
 
+MERGE INTO inventory_daily t
+USING inventory_daily s
+ON (t.item = s.item
+AND  t.inventory_date = s.inventory_date)
+WHEN MATCHED THEN
+UPDATE SET
+    t.ending_inventory =
+        s.beginning_inventory - s.receipts + s.shipments
+WHERE t.ending_inventory <>
+      s.beginning_inventory - s.receipts + s.shipments;
 
 MERGE INTO INVENTORY_DAILY t
 USING (
