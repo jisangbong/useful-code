@@ -2659,6 +2659,140 @@ WHERE t.ENDING_INVENTORY <> s.CALC_ENDING;
 
 
 
+DECLARE
+    TYPE group_total_map  IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+    TYPE region_group_map IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
+
+    v_group_totals   group_total_map;
+    v_region_group   region_group_map;
+
+    v_total_qty      NUMBER;
+    v_avg_qty        NUMBER;
+
+    v_best_group     PLS_INTEGER;
+    v_min_total      NUMBER;
+
+    v_groups CONSTANT PLS_INTEGER := 5;
+BEGIN
+    ----------------------------------------------------------------
+    -- Initialize group totals (groups 1–5 → A–E)
+    ----------------------------------------------------------------
+    FOR i IN 1..v_groups LOOP
+        v_group_totals(i) := 0;
+    END LOOP;
+
+    ----------------------------------------------------------------
+    -- Compute total and average
+    ----------------------------------------------------------------
+    SELECT SUM(inventory_qty)
+    INTO v_total_qty
+    FROM region_inventory;
+
+    v_avg_qty := v_total_qty / v_groups;
+
+    DELETE FROM inventory_group_result;
+
+    ----------------------------------------------------------------
+    -- Process NON-ZERO inventory (largest first)
+    ----------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty > 0
+        ORDER BY inventory_qty DESC
+    ) LOOP
+
+        v_best_group := NULL;
+        v_min_total  := 1e18;
+
+        -- Try same-region group first (soft rule)
+        IF v_region_group.EXISTS(TO_NUMBER(r.region_id)) THEN
+            IF v_group_totals(v_region_group(TO_NUMBER(r.region_id)))
+               + r.inventory_qty <= v_avg_qty * 1.15 THEN
+                v_best_group := v_region_group(TO_NUMBER(r.region_id));
+            END IF;
+        END IF;
+
+        -- Otherwise choose the lightest group
+        IF v_best_group IS NULL THEN
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total  := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+        END IF;
+
+        -- Insert result
+        INSERT INTO inventory_group_result
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+
+        -- Update totals
+        v_group_totals(v_best_group) :=
+            v_group_totals(v_best_group) + r.inventory_qty;
+
+        -- Remember region assignment
+        IF NOT v_region_group.EXISTS(TO_NUMBER(r.region_id)) THEN
+            v_region_group(TO_NUMBER(r.region_id)) := v_best_group;
+        END IF;
+
+    END LOOP;
+
+    ----------------------------------------------------------------
+    -- Process ZERO inventory last
+    ----------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty = 0
+    ) LOOP
+        v_min_total := 1e18;
+
+        FOR i IN 1..v_groups LOOP
+            IF v_group_totals(i) < v_min_total THEN
+                v_min_total  := v_group_totals(i);
+                v_best_group := i;
+            END IF;
+        END LOOP;
+
+        INSERT INTO inventory_group_result
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+    END LOOP;
+
+    COMMIT;
+END;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
