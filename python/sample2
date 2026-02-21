@@ -2774,6 +2774,17 @@ END;
 
 
 
+SELECT *
+FROM inventory_group_result
+ORDER BY inventory_group, inventory_qty DESC;
+
+
+SELECT region_id,
+       COUNT(DISTINCT inventory_group) AS group_count
+FROM inventory_group_result
+GROUP BY region_id
+HAVING COUNT(DISTINCT inventory_group) > 1;
+
 
 
 
