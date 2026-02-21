@@ -2792,6 +2792,142 @@ HAVING COUNT(DISTINCT inventory_group) > 1;
 
 
 
+DECLARE
+    TYPE num_map    IS TABLE OF NUMBER  INDEX BY PLS_INTEGER;
+    TYPE int_map    IS TABLE OF INTEGER INDEX BY PLS_INTEGER;
+    TYPE bool_map   IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;
+
+    v_group_totals   num_map;
+    v_region_group   int_map;
+    v_region_split   bool_map;
+
+    v_total_qty      NUMBER;
+    v_avg_qty        NUMBER;
+
+    v_best_group     PLS_INTEGER;
+    v_min_total      NUMBER;
+
+    v_groups CONSTANT PLS_INTEGER := 5;
+BEGIN
+    ------------------------------------------------------------
+    -- Init
+    ------------------------------------------------------------
+    FOR i IN 1..v_groups LOOP
+        v_group_totals(i) := 0;
+    END LOOP;
+
+    SELECT SUM(inventory_qty)
+    INTO v_total_qty
+    FROM region_inventory;
+
+    v_avg_qty := v_total_qty / v_groups;
+
+    DELETE FROM inventory_group_result;
+
+    ------------------------------------------------------------
+    -- NON-ZERO inventory (largest first)
+    ------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty > 0
+        ORDER BY inventory_qty DESC
+    ) LOOP
+
+        v_best_group := NULL;
+
+        --------------------------------------------------------
+        -- Rule 1: Region cohesion ONLY if region not split
+        --------------------------------------------------------
+        IF v_region_group.EXISTS(r.region_id)
+           AND NOT v_region_split.EXISTS(r.region_id)
+        THEN
+            -- Allow cohesion only if it does not worsen imbalance
+            IF v_group_totals(v_region_group(r.region_id))
+               + r.inventory_qty
+               <= v_avg_qty * 1.05
+            THEN
+                v_best_group := v_region_group(r.region_id);
+            END IF;
+        END IF;
+
+        --------------------------------------------------------
+        -- Rule 2: Balance-first fallback
+        --------------------------------------------------------
+        IF v_best_group IS NULL THEN
+            v_min_total := 1e18;
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total  := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+        END IF;
+
+        --------------------------------------------------------
+        -- Detect region split
+        --------------------------------------------------------
+        IF v_region_group.EXISTS(r.region_id)
+           AND v_region_group(r.region_id) <> v_best_group
+        THEN
+            v_region_split(r.region_id) := TRUE;
+        END IF;
+
+        --------------------------------------------------------
+        -- Save
+        --------------------------------------------------------
+        INSERT INTO inventory_group_result
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+
+        v_group_totals(v_best_group) :=
+            v_group_totals(v_best_group) + r.inventory_qty;
+
+        IF NOT v_region_group.EXISTS(r.region_id) THEN
+            v_region_group(r.region_id) := v_best_group;
+        END IF;
+
+    END LOOP;
+
+    ------------------------------------------------------------
+    -- ZERO inventory
+    ------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty = 0
+    ) LOOP
+
+        IF v_region_group.EXISTS(r.region_id)
+           AND NOT v_region_split.EXISTS(r.region_id)
+        THEN
+            v_best_group := v_region_group(r.region_id);
+        ELSE
+            v_min_total := 1e18;
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total  := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+        END IF;
+
+        INSERT INTO inventory_group_result
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+
+    END LOOP;
+
+    COMMIT;
+END;
 
 
 
