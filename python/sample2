@@ -3342,7 +3342,19 @@ BEGIN
 END;
 
 
-
+MERGE INTO inventory_group_result tgt
+USING (
+    SELECT
+        region_id,
+        DENSE_RANK() OVER (
+            ORDER BY SUM(inventory_qty) DESC
+        ) AS region_rank
+    FROM inventory_group_result
+    GROUP BY region_id
+) src
+ON (tgt.region_id = src.region_id)
+WHEN MATCHED THEN
+    UPDATE SET tgt.region_rank = src.region_rank;
 
 
 
