@@ -2934,6 +2934,416 @@ END;
 
 
 
+DECLARE
+  -- 1. NUMBER 형식의 테이블 타입 정의
+  TYPE t_num_tab IS TABLE OF NUMBER;
+  
+  -- 2. 변수 선언 및 초기화
+  v_numbers t_num_tab := t_num_tab(10, 20, 30); -- 1, 2, 3 인덱스에 데이터 존재
+BEGIN
+    -- 3. 루프를 돌며 DBMS_OUTPUT으로 내용 확인
+    IF v_numbers.COUNT > 0 THEN
+        FOR i IN v_numbers.FIRST .. v_numbers.LAST LOOP
+            DBMS_OUTPUT.PUT_LINE('Index ' || i || ': ' || v_numbers(i));
+        END LOOP;
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('컬렉션이 비어 있습니다.');
+    END IF;
+  -- 3. EXISTS를 사용하여 특정 인덱스 확인
+  IF v_numbers.EXISTS(2) THEN
+    DBMS_OUTPUT.PUT_LINE('인덱스 2가 존재합니다. 값: ' || v_numbers(2));
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('인덱스 2가 없습니다.');
+  END IF;
+
+  -- 4. 존재하지 않는 인덱스 확인 (인덱스 5는 없음)
+  IF v_numbers.EXISTS(5) THEN
+    DBMS_OUTPUT.PUT_LINE('인덱스 5가 존재합니다.');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('인덱스 5가 존재하지 않습니다.');
+  END IF;
+  
+  -- 5. 삭제된 인덱스 확인
+  v_numbers.DELETE(3);
+  IF NOT v_numbers.EXISTS(3) THEN
+    DBMS_OUTPUT.PUT_LINE('인덱스 3이 삭제되어 존재하지 않습니다.');
+  END IF;
+END;
+
+
+
+
+DECLARE
+    TYPE bool_map IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;
+    v_region_split bool_map;
+BEGIN
+    -- example data
+    v_region_split(3) := TRUE;
+    v_region_split(7) := FALSE;
+
+    IF v_region_split.COUNT > 0 THEN
+        FOR i IN v_region_split.FIRST .. v_region_split.LAST LOOP
+            IF v_region_split.EXISTS(i) THEN
+                DBMS_OUTPUT.PUT_LINE(
+                    'Index ' || i || ': ' ||
+                    CASE
+                        WHEN v_region_split(i) THEN 'TRUE'
+                        ELSE 'FALSE'
+                    END
+                );
+            END IF;
+        END LOOP;
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('v_region_split empty');
+    END IF;
+END;
+
+
+
+
+
+
+
+DECLARE
+    TYPE num_map    IS TABLE OF NUMBER  INDEX BY PLS_INTEGER;
+    TYPE int_map    IS TABLE OF INTEGER INDEX BY PLS_INTEGER;
+    TYPE bool_map   IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;
+
+    v_group_totals   num_map;
+    v_region_group   int_map;
+    v_region_split   bool_map;
+
+    v_total_qty      NUMBER;
+    v_avg_qty        NUMBER;
+
+    v_best_group     PLS_INTEGER;
+    v_min_total      NUMBER;
+
+    v_groups CONSTANT PLS_INTEGER := 5;
+BEGIN
+    ------------------------------------------------------------
+    -- Init
+    ------------------------------------------------------------
+    FOR i IN 1..v_groups LOOP
+        v_group_totals(i) := 0;
+    END LOOP;
+
+    SELECT SUM(inventory_qty)
+    INTO v_total_qty
+    FROM region_inventory;
+
+    v_avg_qty := v_total_qty / v_groups;
+
+    DELETE FROM inventory_group_result;
+
+    ------------------------------------------------------------
+    -- NON-ZERO inventory (largest first)
+    ------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty > 0
+        ORDER BY inventory_qty DESC
+    ) LOOP
+
+        v_best_group := NULL;
+
+        --------------------------------------------------------
+        -- Rule 1: Region cohesion ONLY if region not split
+        --------------------------------------------------------
+        IF v_region_group.EXISTS(r.region_id)
+           AND NOT v_region_split.EXISTS(r.region_id)
+        THEN
+            -- Allow cohesion only if it does not worsen imbalance
+            IF v_group_totals(v_region_group(r.region_id))
+               + r.inventory_qty
+               <= v_avg_qty * 1.05
+            THEN
+                v_best_group := v_region_group(r.region_id);
+            END IF;
+        END IF;
+
+        --------------------------------------------------------
+        -- Rule 2: Balance-first fallback
+        --------------------------------------------------------
+        IF v_best_group IS NULL THEN
+            v_min_total := 1e18;
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total  := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+        END IF;
+
+        --------------------------------------------------------
+        -- Detect region split
+        --------------------------------------------------------
+        IF v_region_group.EXISTS(r.region_id)
+           AND v_region_group(r.region_id) <> v_best_group
+        THEN
+            v_region_split(r.region_id) := TRUE;
+        END IF;
+
+        --------------------------------------------------------
+        -- Save
+        --------------------------------------------------------
+        INSERT INTO inventory_group_result
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+
+        v_group_totals(v_best_group) :=
+            v_group_totals(v_best_group) + r.inventory_qty;
+
+        IF NOT v_region_group.EXISTS(r.region_id) THEN
+            v_region_group(r.region_id) := v_best_group;
+        END IF;
+
+    END LOOP;
+
+    ------------------------------------------------------------
+    -- ZERO inventory
+    ------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty = 0
+    ) LOOP
+
+        IF v_region_group.EXISTS(r.region_id)
+           AND NOT v_region_split.EXISTS(r.region_id)
+        THEN
+            v_best_group := v_region_group(r.region_id);
+        ELSE
+            v_min_total := 1e18;
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total  := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+        END IF;
+
+        INSERT INTO inventory_group_result
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+
+    END LOOP;
+
+    COMMIT;
+END;
+
+
+SELECT *
+FROM inventory_group_result
+ORDER BY inventory_group, inventory_qty DESC;
+
+
+
+SELECT region_id,
+       COUNT(DISTINCT inventory_group) AS group_count
+FROM inventory_group_result
+GROUP BY region_id
+HAVING COUNT(DISTINCT inventory_group) > 1;
+
+
+
+
+SELECT INVENTORY_GROUP, SUM(INVENTORY_QTY)
+FROM REGION_INVENTORY_GROUPED
+GROUP BY INVENTORY_GROUP 
+
+
+
+
+
+DECLARE
+    ------------------------------------------------------------------
+    -- Configuration
+    ------------------------------------------------------------------
+    v_groups CONSTANT PLS_INTEGER := 5; -- A..E
+
+    ------------------------------------------------------------------
+    -- Totals & averages
+    ------------------------------------------------------------------
+    v_total_qty   NUMBER := 0;
+    v_avg_qty     NUMBER := 0;
+
+    ------------------------------------------------------------------
+    -- Group totals
+    ------------------------------------------------------------------
+    TYPE num_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+    v_group_totals num_tab;
+
+    ------------------------------------------------------------------
+    -- Region → primary group
+    ------------------------------------------------------------------
+    TYPE region_group_tab IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
+    v_region_group region_group_tab;
+
+    ------------------------------------------------------------------
+    -- Region split flag
+    ------------------------------------------------------------------
+    TYPE region_split_tab IS TABLE OF BOOLEAN INDEX BY PLS_INTEGER;
+    v_region_split region_split_tab;
+
+    ------------------------------------------------------------------
+    -- Region → secondary group (for small/zero rows after split)
+    ------------------------------------------------------------------
+    TYPE region_secondary_group_tab IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
+    v_region_secondary_group region_secondary_group_tab;
+
+    ------------------------------------------------------------------
+    -- Working variables
+    ------------------------------------------------------------------
+    v_best_group PLS_INTEGER;
+    v_min_total  NUMBER;
+BEGIN
+    ------------------------------------------------------------------
+    -- Initialize group totals
+    ------------------------------------------------------------------
+    FOR i IN 1..v_groups LOOP
+        v_group_totals(i) := 0;
+    END LOOP;
+
+    ------------------------------------------------------------------
+    -- Compute total inventory and average per group
+    ------------------------------------------------------------------
+    SELECT SUM(inventory_qty)
+    INTO v_total_qty
+    FROM region_inventory;
+
+    v_avg_qty := v_total_qty / v_groups;
+
+    ------------------------------------------------------------------
+    -- Clear output table
+    ------------------------------------------------------------------
+    DELETE FROM region_inventory_grouped;
+
+    ------------------------------------------------------------------
+    -- 1️⃣ Process NON-ZERO inventory (largest first)
+    ------------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty > 0
+        ORDER BY inventory_qty DESC
+    ) LOOP
+
+        v_best_group := NULL;
+
+        ------------------------------------------------------------------
+        -- Case 1: Region not seen yet → assign to smallest group
+        ------------------------------------------------------------------
+        IF NOT v_region_group.EXISTS(r.region_id) THEN
+            v_min_total := 1e18;
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+
+            v_region_group(r.region_id) := v_best_group;
+
+        ELSE
+            ------------------------------------------------------------------
+            -- Region already seen
+            ------------------------------------------------------------------
+            IF r.inventory_qty >= v_avg_qty THEN
+                -- Large row → allow split
+                v_region_split(r.region_id) := TRUE;
+                v_min_total := 1e18;
+                FOR i IN 1..v_groups LOOP
+                    IF v_group_totals(i) < v_min_total THEN
+                        v_min_total := v_group_totals(i);
+                        v_best_group := i;
+                    END IF;
+                END LOOP;
+            ELSE
+                -- Small row
+                IF v_region_secondary_group.EXISTS(r.region_id) THEN
+                    v_best_group := v_region_secondary_group(r.region_id);
+                ELSIF v_region_split.EXISTS(r.region_id) THEN
+                    -- First small row after split chooses secondary group
+                    v_min_total := 1e18;
+                    FOR i IN 1..v_groups LOOP
+                        IF v_group_totals(i) < v_min_total THEN
+                            v_min_total := v_group_totals(i);
+                            v_best_group := i;
+                        END IF;
+                    END LOOP;
+                    v_region_secondary_group(r.region_id) := v_best_group;
+                ELSE
+                    -- Region not split → follow primary group
+                    v_best_group := v_region_group(r.region_id);
+                END IF;
+            END IF;
+        END IF;
+
+        ------------------------------------------------------------------
+        -- Apply assignment
+        ------------------------------------------------------------------
+        v_group_totals(v_best_group) :=
+            v_group_totals(v_best_group) + r.inventory_qty;
+
+        INSERT INTO region_inventory_grouped
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group) -- 1=A, 2=B...
+        );
+    END LOOP;
+
+    ------------------------------------------------------------------
+    -- 2️⃣ Process ZERO inventory
+    ------------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id, location_id, inventory_qty
+        FROM region_inventory
+        WHERE inventory_qty = 0
+    ) LOOP
+
+        IF v_region_secondary_group.EXISTS(r.region_id) THEN
+            v_best_group := v_region_secondary_group(r.region_id);
+        ELSIF v_region_group.EXISTS(r.region_id)
+              AND NOT v_region_split.EXISTS(r.region_id)
+        THEN
+            v_best_group := v_region_group(r.region_id);
+        ELSE
+            v_min_total := 1e18;
+            FOR i IN 1..v_groups LOOP
+                IF v_group_totals(i) < v_min_total THEN
+                    v_min_total := v_group_totals(i);
+                    v_best_group := i;
+                END IF;
+            END LOOP;
+        END IF;
+
+        INSERT INTO region_inventory_grouped
+        VALUES (
+            r.region_id,
+            r.location_id,
+            r.inventory_qty,
+            CHR(64 + v_best_group)
+        );
+    END LOOP;
+
+    COMMIT;
+END;
+
+
+
+
 
 
 
