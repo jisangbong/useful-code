@@ -3360,6 +3360,295 @@ WHEN MATCHED THEN
 
 
 
+DECLARE
+    ------------------------------------------------------------------
+    -- Constants
+    ------------------------------------------------------------------
+    c_groups CONSTANT PLS_INTEGER := 5;
+
+    ------------------------------------------------------------------
+    -- Types
+    ------------------------------------------------------------------
+    TYPE num_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+    TYPE int_tab IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
+
+    ------------------------------------------------------------------
+    -- Group tracking
+    ------------------------------------------------------------------
+    v_group_sum      num_tab;   -- total inventory per group
+
+    ------------------------------------------------------------------
+    -- Region tracking
+    ------------------------------------------------------------------
+    v_region_group   int_tab;   -- chosen group per region
+
+    ------------------------------------------------------------------
+    -- Totals
+    ------------------------------------------------------------------
+    v_total_qty      NUMBER;
+    v_avg_qty        NUMBER;
+
+    ------------------------------------------------------------------
+    -- Helpers
+    ------------------------------------------------------------------
+    v_best_group     PLS_INTEGER;
+    v_min_sum        NUMBER;
+BEGIN
+    ------------------------------------------------------------------
+    -- Initialize groups
+    ------------------------------------------------------------------
+    FOR i IN 1 .. c_groups LOOP
+        v_group_sum(i) := 0;
+    END LOOP;
+
+    ------------------------------------------------------------------
+    -- Compute total & average
+    ------------------------------------------------------------------
+    SELECT SUM(inventory_qty)
+    INTO   v_total_qty
+    FROM   region_inventory;
+
+    v_avg_qty := v_total_qty / c_groups;
+
+    DELETE FROM inventory_group_result;
+
+    ------------------------------------------------------------------
+    -- PHASE 1: Process regions by descending total
+    ------------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id,
+               SUM(inventory_qty) AS region_total
+        FROM   region_inventory
+        GROUP  BY region_id
+        ORDER  BY region_total DESC
+    ) LOOP
+
+        ------------------------------------------------------------------
+        -- Find currently smallest group
+        ------------------------------------------------------------------
+        v_min_sum := 1e18;
+        FOR i IN 1 .. c_groups LOOP
+            IF v_group_sum(i) < v_min_sum THEN
+                v_min_sum    := v_group_sum(i);
+                v_best_group := i;
+            END IF;
+        END LOOP;
+
+        ------------------------------------------------------------------
+        -- Rule 2: Keep region intact if possible
+        ------------------------------------------------------------------
+        IF r.region_total <= v_avg_qty THEN
+
+            v_region_group(r.region_id) := v_best_group;
+
+            INSERT INTO inventory_group_result
+            SELECT
+                region_id,
+                location_id,
+                inventory_qty,
+                CHR(64 + v_best_group)
+            FROM region_inventory
+            WHERE region_id = r.region_id;
+
+            v_group_sum(v_best_group) :=
+                v_group_sum(v_best_group) + r.region_total;
+
+        ELSE
+            ------------------------------------------------------------------
+            -- Oversized region → split by location
+            ------------------------------------------------------------------
+            FOR loc IN (
+                SELECT location_id, inventory_qty
+                FROM   region_inventory
+                WHERE  region_id = r.region_id
+                ORDER  BY inventory_qty DESC
+            ) LOOP
+
+                -- find smallest group again
+                v_min_sum := 1e18;
+                FOR i IN 1 .. c_groups LOOP
+                    IF v_group_sum(i) < v_min_sum THEN
+                        v_min_sum    := v_group_sum(i);
+                        v_best_group := i;
+                    END IF;
+                END LOOP;
+
+                INSERT INTO inventory_group_result
+                VALUES (
+                    r.region_id,
+                    loc.location_id,
+                    loc.inventory_qty,
+                    CHR(64 + v_best_group)
+                );
+
+                v_group_sum(v_best_group) :=
+                    v_group_sum(v_best_group) + loc.inventory_qty;
+
+            END LOOP;
+        END IF;
+
+    END LOOP;
+
+    COMMIT;
+END;
+
+
+
+
+
+
+DECLARE
+    ------------------------------------------------------------------
+    -- Constants
+    ------------------------------------------------------------------
+    c_groups CONSTANT PLS_INTEGER := 5;
+
+    ------------------------------------------------------------------
+    -- Types
+    ------------------------------------------------------------------
+    TYPE num_tab IS TABLE OF NUMBER INDEX BY PLS_INTEGER;
+    TYPE int_tab IS TABLE OF PLS_INTEGER INDEX BY PLS_INTEGER;
+
+    ------------------------------------------------------------------
+    -- Group tracking
+    ------------------------------------------------------------------
+    v_group_sum      num_tab;   -- total inventory per group
+
+    ------------------------------------------------------------------
+    -- Region tracking
+    ------------------------------------------------------------------
+    v_region_group   int_tab;   -- chosen group per region
+
+    ------------------------------------------------------------------
+    -- Totals
+    ------------------------------------------------------------------
+    v_total_qty      NUMBER;
+    v_avg_qty        NUMBER;
+
+    ------------------------------------------------------------------
+    -- Helpers
+    ------------------------------------------------------------------
+    v_best_group     PLS_INTEGER;
+    v_min_sum        NUMBER;
+BEGIN
+    ------------------------------------------------------------------
+    -- Initialize groups
+    ------------------------------------------------------------------
+    FOR i IN 1 .. c_groups LOOP
+        v_group_sum(i) := 0;
+    END LOOP;
+
+    ------------------------------------------------------------------
+    -- Compute total & average
+    ------------------------------------------------------------------
+    SELECT SUM(inventory_qty)
+    INTO   v_total_qty
+    FROM   region_inventory;
+
+    v_avg_qty := v_total_qty / c_groups;
+    DBMS_OUTPUT.PUT_LINE('v_avg_qty : ' || v_avg_qty);
+
+    DELETE FROM inventory_group_result;
+
+    ------------------------------------------------------------------
+    -- PHASE 1: Process regions by descending total
+    ------------------------------------------------------------------
+    FOR r IN (
+        SELECT region_id,
+               SUM(inventory_qty) AS region_total
+        FROM   region_inventory
+        GROUP  BY region_id
+        ORDER  BY region_total DESC
+    ) LOOP
+
+        ------------------------------------------------------------------
+        -- Find currently smallest group
+        ------------------------------------------------------------------
+--        v_min_sum := 1e18;
+--        FOR i IN 1 .. c_groups LOOP
+--            IF v_group_sum(i) < v_min_sum THEN
+--                v_min_sum    := v_group_sum(i);
+--                v_best_group := i;
+--            END IF;
+--        END LOOP;
+        v_best_group := NULL;
+        FOR i IN 1..c_groups LOOP
+	        DBMS_OUTPUT.PUT_LINE('v_group_sum(i) : ' || v_group_sum(i));
+            CONTINUE WHEN v_best_group IS NOT NULL;
+            IF v_group_sum(i) < v_avg_qty THEN
+                v_best_group := i;
+                DBMS_OUTPUT.PUT_LINE('v_best_group 1 : ' || v_best_group);
+            END IF;
+        END LOOP;
+
+        ------------------------------------------------------------------
+        -- Rule 2: Keep region intact if possible
+        ------------------------------------------------------------------
+        IF r.region_total <= v_avg_qty THEN
+
+            v_region_group(r.region_id) := v_best_group;
+
+            INSERT INTO inventory_group_result
+            SELECT
+                region_id,
+                location_id,
+                inventory_qty,
+                CHR(64 + v_best_group)
+            FROM region_inventory
+            WHERE region_id = r.region_id;
+
+            v_group_sum(v_best_group) :=
+                v_group_sum(v_best_group) + r.region_total;
+
+        ELSE
+            ------------------------------------------------------------------
+            -- Oversized region → split by location
+            ------------------------------------------------------------------
+            FOR loc IN (
+                SELECT location_id, inventory_qty
+                FROM   region_inventory
+                WHERE  region_id = r.region_id
+                ORDER  BY inventory_qty DESC
+            ) LOOP
+	            DBMS_OUTPUT.PUT_LINE('region_id : ' || r.region_id || ', location_id : ' || loc.location_id || ', inventory_qty : ' || loc.inventory_qty);
+
+                -- find smallest group again
+--                v_min_sum := 1e18;
+--                FOR i IN 1 .. c_groups LOOP
+--                    IF v_group_sum(i) < v_min_sum THEN
+--                        v_min_sum    := v_group_sum(i);
+--                        v_best_group := i;
+--                    END IF;
+--                END LOOP;
+                v_best_group := NULL;
+                FOR i IN 1..c_groups LOOP
+	                DBMS_OUTPUT.PUT_LINE('v_group_sum(i) : ' || v_group_sum(i));
+                    CONTINUE WHEN v_best_group IS NOT NULL;
+                    IF v_group_sum(i) < v_avg_qty THEN
+                        v_best_group := i;
+                        DBMS_OUTPUT.PUT_LINE('v_best_group 2 : ' || v_best_group);
+                    END IF;
+                END LOOP;
+
+                INSERT INTO inventory_group_result
+                VALUES (
+                    r.region_id,
+                    loc.location_id,
+                    loc.inventory_qty,
+                    CHR(64 + v_best_group)
+                );
+
+                v_group_sum(v_best_group) :=
+                    v_group_sum(v_best_group) + loc.inventory_qty;
+
+            END LOOP;
+        END IF;
+
+    END LOOP;
+
+    COMMIT;
+END;
+
 
 
 
