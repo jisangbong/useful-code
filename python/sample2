@@ -3652,5 +3652,7 @@ END;
 
 
 
-
+SELECT name, value
+FROM v$parameter
+WHERE name = 'distributed_lock_timeout';
 
