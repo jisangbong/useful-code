@@ -3720,3 +3720,29 @@ EXCEPTION
         ROLLBACK;
         RAISE;
 END;
+
+
+CREATE OR REPLACE PROCEDURE SB.load_data_by_region (
+    p_region IN VARCHAR2
+)
+AS
+    v_day_suffix VARCHAR2(3);
+BEGIN
+    -- Determine the day suffix
+    IF p_region = 'US' THEN
+        v_day_suffix := '%FR';
+    ELSIF p_region = 'EU' THEN
+        v_day_suffix := '%SA';
+    ELSE
+        RAISE_APPLICATION_ERROR(-20001, 'Invalid region parameter');
+    END IF;
+
+    -- Insert data from Table B into Table A
+    INSERT INTO TABLE_A (col1, col2, col3)
+    SELECT col1, col2, col3
+    FROM TABLE_B
+    WHERE col3 LIKE v_day_suffix;
+
+    COMMIT;
+END;
+
