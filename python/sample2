@@ -3663,3 +3663,60 @@ FROM A_TABLE@DBLINK a
 JOIN B_TABLE@DBLINK b
 ON ...
 
+
+
+CREATE OR REPLACE PROCEDURE load_data_by_region (
+    p_region IN VARCHAR2
+)
+AS
+    v_day_suffix VARCHAR2(3);
+BEGIN
+    -- Determine the day suffix
+    IF p_region = 'US' THEN
+        v_day_suffix := 'FRI';
+    ELSIF p_region = 'EU' THEN
+        v_day_suffix := 'SAT';
+    ELSE
+        RAISE_APPLICATION_ERROR(-20001, 'Invalid region parameter');
+    END IF;
+
+    -- Insert data from Table B into Table A
+    INSERT INTO TABLE_A (col1, col2, col3)
+    SELECT col1, col2, col3
+    FROM TABLE_B
+    WHERE day_of_week LIKE '%' || v_day_suffix;
+
+    COMMIT;
+END;
+
+
+CREATE OR REPLACE PROCEDURE process_region_data (
+    p_region    IN VARCHAR2,
+    p_result    OUT SYS_REFCURSOR
+) AS
+    v_search_pattern VARCHAR2(20);
+BEGIN
+    -- 1. Insert data into Table A
+    INSERT INTO Table_A (column1, status_date)
+    VALUES ('New Entry', SYSDATE);
+
+    -- 2. Determine the search pattern based on the parameter
+    -- Appends %FRI for 'US' and %SAT for 'EU'
+    v_search_pattern := CASE 
+        WHEN p_region = 'US' THEN '%FRI'
+        WHEN p_region = 'EU' THEN '%SAT'
+        ELSE NULL 
+    END;
+
+    -- 3. Retrieve data from Table B using the LIKE search
+    OPEN p_result FOR
+    SELECT * 
+    FROM Table_B
+    WHERE day_of_the_week LIKE v_search_pattern;
+
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        RAISE;
+END;
