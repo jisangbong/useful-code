@@ -3746,3 +3746,19 @@ BEGIN
     COMMIT;
 END;
 
+
+
+SELECT  s.region,
+        s.product,
+        s.required_week,
+        SUM(d.demand_qty) AS safety_stock_demand
+FROM    safety_stock s
+        JOIN demand d
+          ON d.region  = s.region
+         AND d.product = s.product
+         AND d.week_no <= s.required_week
+GROUP BY
+        s.region,
+        s.product,
+        s.required_week;
+
