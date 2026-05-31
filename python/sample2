@@ -3763,6 +3763,46 @@ GROUP BY
         s.required_week;
 
 
+SELECT  s.region,
+        s.product,
+        s.ref_week,
+        s.required_week,
+        SUM(d.demand_qty) AS demand_sum
+FROM safety_stock s
+JOIN demand d
+  ON d.region  = s.region
+ AND d.product = s.product
+ AND d.week_no BETWEEN s.ref_week
+                   AND s.ref_week + s.required_week - 1
+GROUP BY
+        s.region,
+        s.product,
+        s.ref_week,
+        s.required_week;
+
+WITH demand_rnk AS (
+    SELECT d.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY region, product
+               ORDER BY demand_date
+           ) rn
+    FROM demand d
+)
+SELECT s.region,
+       s.product,
+       SUM(d.demand_qty) demand_sum
+FROM safety_stock s
+JOIN demand_rnk d
+  ON d.region = s.region
+ AND d.product = s.product
+JOIN demand_rnk start_wk
+  ON start_wk.region = s.region
+ AND start_wk.product = s.product
+ AND start_wk.demand_date = s.base_date
+ AND d.rn BETWEEN start_wk.rn
+             AND start_wk.rn + s.required_week - 1
+GROUP BY s.region, s.product;
+
 WITH RankedDemand AS (
     SELECT 
         Region,
