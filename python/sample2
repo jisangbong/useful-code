@@ -3762,3 +3762,35 @@ GROUP BY
         s.product,
         s.required_week;
 
+
+WITH RankedDemand AS (
+    SELECT 
+        Region,
+        Product,
+        Week,
+        Demand,
+        -- Calculate the sum of the current row and the specified number of future rows (weeks)
+        SUM(Demand) OVER (
+            PARTITION BY Region, Product 
+            ORDER BY Week 
+            ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+        ) as forward_sum
+    FROM Demand
+)
+SELECT 
+    s.Region,
+    s.Product,
+    s.required_week,
+    -- Get the value at the exact week offset (required_week - 1 rows ahead)
+    -- This handles dynamically stopping exactly at the required_week count
+    COALESCE(
+        LEAD(d.forward_sum, s.required_week - 1) OVER (
+            PARTITION BY s.Region, s.Product 
+            ORDER BY d.Week
+        ), 
+        d.forward_sum
+    ) AS required_demand_sum
+FROM Safety_Stock s
+JOIN RankedDemand d 
+    ON s.Region = d.Region 
+   AND s.Product = d.Product;
