@@ -4076,3 +4076,122 @@ BEGIN
 END;
 /
 
+
+
+
+CREATE OR REPLACE PROCEDURE load_data
+IS
+
+    CURSOR c_data IS
+        SELECT *
+        FROM source_table;
+
+    TYPE t_tab IS TABLE OF c_data%ROWTYPE;
+
+    l_tab t_tab;
+
+BEGIN
+
+    ----------------------------------------------------------------
+    -- Pre-processing
+    ----------------------------------------------------------------
+
+    UPDATE batch_control
+    SET status = 'RUNNING'
+    WHERE batch_id = 1;
+
+    COMMIT;
+
+    ----------------------------------------------------------------
+    -- Main bulk processing
+    ----------------------------------------------------------------
+
+    OPEN c_data;
+
+    LOOP
+
+        FETCH c_data
+        BULK COLLECT INTO l_tab
+        LIMIT 5000;
+
+        EXIT WHEN l_tab.COUNT = 0;
+
+        FORALL i IN 1 .. l_tab.COUNT
+
+            INSERT INTO A
+            VALUES l_tab(i);
+
+        COMMIT;
+
+    END LOOP;
+
+    CLOSE c_data;
+
+    ----------------------------------------------------------------
+    -- Post-processing
+    ----------------------------------------------------------------
+
+    UPDATE batch_control
+    SET status = 'DONE'
+    WHERE batch_id = 1;
+
+    COMMIT;
+
+EXCEPTION
+
+    WHEN OTHERS THEN
+
+        ROLLBACK;
+
+        UPDATE batch_control
+        SET status = 'ERROR'
+        WHERE batch_id = 1;
+
+        COMMIT;
+
+        RAISE;
+
+END;
+/
+
+
+
+
+
+DECLARE
+
+    TYPE ref_cur IS REF CURSOR;
+
+    c_data ref_cur;
+
+    TYPE t_tab IS TABLE OF source_table%ROWTYPE;
+
+    l_tab t_tab;
+
+BEGIN
+
+    OPEN c_data FOR
+        SELECT *
+        FROM source_table;
+
+    LOOP
+
+        FETCH c_data
+        BULK COLLECT INTO l_tab
+        LIMIT 5000;
+
+        EXIT WHEN l_tab.COUNT = 0;
+
+        FORALL i IN 1 .. l_tab.COUNT
+
+            INSERT INTO A
+            VALUES l_tab(i);
+
+        COMMIT;
+
+    END LOOP;
+
+    CLOSE c_data;
+
+END;
+/
