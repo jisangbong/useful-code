@@ -3863,3 +3863,9 @@ BEGIN
     CLOSE c_data;
 END;
 /
+
+
+FORALL i IN 1 .. l_tab.COUNT
+    INSERT INTO A VALUES l_tab(i);
+
+
