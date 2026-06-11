@@ -3869,3 +3869,29 @@ FORALL i IN 1 .. l_tab.COUNT
     INSERT INTO A VALUES l_tab(i);
 
 
+
+DECLARE
+    CURSOR c_data IS
+        SELECT *
+        FROM B;
+
+    TYPE t_tab IS TABLE OF B%ROWTYPE;
+    l_tab t_tab;
+BEGIN
+    OPEN c_data;
+
+    LOOP
+        FETCH c_data BULK COLLECT INTO l_tab LIMIT 5000;
+
+        EXIT WHEN l_tab.COUNT = 0;
+
+        FORALL i IN 1 .. l_tab.COUNT
+            INSERT INTO A
+            VALUES l_tab(i);
+
+        COMMIT;
+    END LOOP;
+
+    CLOSE c_data;
+END;
+/
