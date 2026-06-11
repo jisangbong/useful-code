@@ -3834,3 +3834,32 @@ FROM Safety_Stock s
 JOIN RankedDemand d 
     ON s.Region = d.Region 
    AND s.Product = d.Product;
+
+
+
+
+
+DECLARE
+    CURSOR c_data IS
+        SELECT *
+        FROM B;
+
+    TYPE t_tab IS TABLE OF c_data%ROWTYPE;
+    l_data t_tab;
+BEGIN
+    OPEN c_data;
+
+    LOOP
+        FETCH c_data BULK COLLECT INTO l_data LIMIT 10000;
+
+        EXIT WHEN l_data.COUNT = 0;
+
+        FORALL i IN 1 .. l_data.COUNT
+            INSERT INTO A VALUES l_data(i);
+
+        COMMIT;
+    END LOOP;
+
+    CLOSE c_data;
+END;
+/
