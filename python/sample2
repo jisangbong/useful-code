@@ -3895,3 +3895,184 @@ BEGIN
     CLOSE c_data;
 END;
 /
+
+
+DECLARE
+    v_rows NUMBER := 100000; -- 
+    v_count NUMBER := 0;
+BEGIN
+    LOOP
+        INSERT /*+ APPEND PARALLEL(B, 4) */ INTO B
+        SELECT * 
+        FROM A
+        WHERE ROWNUM <= v_rows
+          AND condition
+
+        v_count := SQL%ROWCOUNT;
+        COMMIT;
+
+        -- 
+        EXIT WHEN v_count = 0;
+    END LOOP;
+END;
+/
+
+
+LOOP
+   INSERT INTO A
+   SELECT ...
+   FROM source_table
+   WHERE ...
+   AND ROWNUM <= 100000;
+
+   COMMIT;
+
+   EXIT WHEN SQL%ROWCOUNT = 0;
+END LOOP;
+
+
+CREATE GLOBAL TEMPORARY TABLE B
+(
+    ...
+    processed CHAR(1) DEFAULT 'N'
+)
+ON COMMIT PRESERVE ROWS;
+
+DECLARE
+    v_count NUMBER;
+BEGIN
+    LOOP
+
+        INSERT INTO A
+        SELECT *
+        FROM B
+        WHERE processed = 'N'
+        AND ROWNUM <= 100000;
+
+        v_count := SQL%ROWCOUNT;
+
+        UPDATE B
+        SET processed = 'Y'
+        WHERE ROWID IN (
+            SELECT ROWID
+            FROM B
+            WHERE processed = 'N'
+            AND ROWNUM <= 100000
+        );
+
+        COMMIT;
+
+        EXIT WHEN v_count = 0;
+
+    END LOOP;
+END;
+/
+
+
+
+DECLARE
+    v_rows NUMBER;
+BEGIN
+    LOOP
+
+        INSERT INTO A
+        SELECT *
+        FROM B
+        WHERE ROWID IN (
+            SELECT ROWID
+            FROM B
+            WHERE ROWNUM <= 100000
+        );
+
+        v_rows := SQL%ROWCOUNT;
+
+        DELETE FROM B
+        WHERE ROWID IN (
+            SELECT ROWID
+            FROM B
+            WHERE ROWNUM <= 100000
+        );
+
+        COMMIT;
+
+        EXIT WHEN v_rows = 0;
+
+    END LOOP;
+END;
+/
+
+
+
+DECLARE
+
+    CURSOR c_data IS
+        SELECT *
+        FROM source_table;
+
+    TYPE t_tab IS TABLE OF c_data%ROWTYPE;
+
+    l_tab t_tab;
+
+BEGIN
+
+    OPEN c_data;
+
+    LOOP
+
+        FETCH c_data
+        BULK COLLECT INTO l_tab
+        LIMIT 5000;
+
+        EXIT WHEN l_tab.COUNT = 0;
+
+        FORALL i IN 1 .. l_tab.COUNT
+
+            INSERT INTO A
+            VALUES l_tab(i);
+
+        COMMIT;
+
+    END LOOP;
+
+    CLOSE c_data;
+
+END;
+/
+
+
+DECLARE
+
+    CURSOR c_data IS
+        SELECT *
+        FROM source_table;
+
+    TYPE t_tab IS TABLE OF c_data%ROWTYPE;
+
+    l_tab t_tab;
+
+BEGIN
+
+    OPEN c_data;
+
+    LOOP
+
+        FETCH c_data
+        BULK COLLECT INTO l_tab
+        LIMIT 5000;
+
+        EXIT WHEN l_tab.COUNT = 0;
+
+        FORALL i IN 1 .. l_tab.COUNT
+
+            INSERT INTO A
+            VALUES l_tab(i);
+
+        COMMIT;
+
+    END LOOP;
+
+    CLOSE c_data;
+
+END;
+/
+
