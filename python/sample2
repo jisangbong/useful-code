@@ -4195,3 +4195,52 @@ BEGIN
 
 END;
 /
+
+
+
+DECLARE
+
+    CURSOR c_data IS
+        SELECT
+            col_1 * 10 AS col_1,
+            UPPER(col_2) AS col_2,
+            col_3
+        FROM source_table;
+
+    TYPE t_tab IS TABLE OF c_data%ROWTYPE;
+
+    l_tab t_tab;
+
+BEGIN
+
+    OPEN c_data;
+
+    LOOP
+
+        FETCH c_data
+        BULK COLLECT INTO l_tab
+        LIMIT 5000;
+
+        EXIT WHEN l_tab.COUNT = 0;
+
+        FORALL i IN 1 .. l_tab.COUNT
+
+            INSERT INTO A (
+                col_1,
+                col_2,
+                col_3
+            )
+            VALUES (
+                l_tab(i).col_1,
+                l_tab(i).col_2,
+                l_tab(i).col_3
+            );
+
+        COMMIT;
+
+    END LOOP;
+
+    CLOSE c_data;
+
+END;
+/
