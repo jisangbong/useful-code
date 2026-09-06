@@ -4244,3 +4244,260 @@ BEGIN
 
 END;
 /
+
+
+
+WITH
+/* ============================================================
+   1. 기본 데이터
+   ============================================================ */
+site_performance AS (
+    SELECT 'A' site_id, 1250 performance_qty FROM dual
+    UNION ALL SELECT 'B',  980 FROM dual
+    UNION ALL SELECT 'C',  760 FROM dual
+    UNION ALL SELECT 'D',  520 FROM dual
+    UNION ALL SELECT 'E',  310 FROM dual
+    UNION ALL SELECT 'F',  180 FROM dual
+    UNION ALL SELECT 'G',    0 FROM dual
+),
+
+/* 공장 공급량 */
+factory AS (
+    SELECT 'F001' factory_id,
+           999 supply_qty
+    FROM dual
+),
+
+/* ============================================================
+   2. 실적이 있는 사이트만 대상
+   ============================================================ */
+target_site AS (
+    SELECT
+        s.site_id,
+        s.performance_qty,
+        SUM(s.performance_qty) OVER () AS total_performance
+    FROM site_performance s
+    WHERE s.performance_qty > 0
+),
+
+/* ============================================================
+   3. ① 실적비례
+      이론적 배분량 = 999 * 실적 / 전체실적
+   ============================================================ */
+proportional_calc AS (
+    SELECT
+        t.site_id,
+        t.performance_qty,
+        t.total_performance,
+        f.supply_qty,
+
+        f.supply_qty
+            * t.performance_qty
+            / t.total_performance AS exact_qty,
+
+        FLOOR(
+            f.supply_qty
+            * t.performance_qty
+            / t.total_performance
+        ) AS base_qty,
+
+        (
+            f.supply_qty
+            * t.performance_qty
+            / t.total_performance
+        )
+        -
+        FLOOR(
+            f.supply_qty
+            * t.performance_qty
+            / t.total_performance
+        ) AS remainder_qty
+
+    FROM target_site t
+    CROSS JOIN factory f
+),
+
+/* ============================================================
+   4. 실적비례의 기본 정수 배분 합계
+   ============================================================ */
+proportional_base AS (
+    SELECT
+        p.*,
+
+        SUM(base_qty) OVER () AS base_total_qty,
+
+        supply_qty
+        - SUM(base_qty) OVER () AS remain_qty
+
+    FROM proportional_calc p
+),
+
+/* ============================================================
+   5. ① 실적비례
+      최대잔여법:
+      소수점이 큰 순서로 잔여 수량 배분
+   ============================================================ */
+proportional_final AS (
+    SELECT
+        p.site_id,
+        p.performance_qty,
+        p.exact_qty,
+        p.base_qty,
+
+        p.base_qty
+        +
+        CASE
+            WHEN ROW_NUMBER() OVER (
+                ORDER BY
+                    p.remainder_qty DESC,
+                    p.performance_qty DESC,
+                    p.site_id
+            )
+            <= p.remain_qty
+            THEN 1
+            ELSE 0
+        END AS allocation_qty
+
+    FROM proportional_base p
+),
+
+/* ============================================================
+   6. ② 수정 생트라고에
+      제수:
+      1.4, 3, 5, 7, 9, 11, ...
+   ============================================================ */
+
+/* 사이트별 999개의 제수 생성 */
+divisors AS (
+    SELECT
+        LEVEL AS n,
+        CASE
+            WHEN LEVEL = 1 THEN 1.4
+            ELSE 2 * LEVEL - 1
+        END AS divisor
+    FROM dual
+    CONNECT BY LEVEL <= 999
+),
+
+/* 사이트 × 제수 조합 */
+sainte_lague_candidates AS (
+    SELECT
+        t.site_id,
+        t.performance_qty,
+        d.n,
+        d.divisor,
+
+        t.performance_qty / d.divisor AS quotient
+
+    FROM target_site t
+    CROSS JOIN divisors d
+),
+
+/* 모든 후보 중 상위 999개 선택 */
+sainte_lague_ranked AS (
+    SELECT
+        c.*,
+
+        ROW_NUMBER() OVER (
+            ORDER BY
+                c.quotient DESC,
+                c.performance_qty DESC,
+                c.site_id,
+                c.n
+        ) AS allocation_rank
+
+    FROM sainte_lague_candidates c
+),
+
+/* 사이트별 최종 의석(?) / 제품 수량 */
+sainte_lague_final AS (
+    SELECT
+        site_id,
+        MAX(performance_qty) AS performance_qty,
+        COUNT(*) AS allocation_qty
+
+    FROM sainte_lague_ranked
+    WHERE allocation_rank <= 999
+    GROUP BY site_id
+),
+
+/* ============================================================
+   7. ③ 실적비례 + 실적우선 잔여배분
+
+      먼저 FLOOR 배분
+      → 남은 수량을 전월 실적이 높은 사이트부터 +1
+   ============================================================ */
+performance_priority AS (
+    SELECT
+        p.*,
+
+        ROW_NUMBER() OVER (
+            ORDER BY
+                p.performance_qty DESC,
+                p.site_id
+        ) AS performance_rank
+
+    FROM proportional_base p
+),
+
+performance_priority_final AS (
+    SELECT
+        site_id,
+        performance_qty,
+        base_qty,
+
+        base_qty
+        +
+        CASE
+            WHEN performance_rank <= remain_qty
+            THEN 1
+            ELSE 0
+        END AS allocation_qty
+
+    FROM performance_priority
+)
+
+/* ============================================================
+   8. 세 가지 결과를 나란히 비교
+   ============================================================ */
+SELECT
+    sp.site_id,
+    sp.performance_qty AS previous_month_sales,
+
+    /* ① 실적비례 */
+    pf.allocation_qty AS proportional_qty,
+
+    /* ② 수정 생트라고에 */
+    NVL(slf.allocation_qty, 0) AS modified_sainte_lague_qty,
+
+    /* ③ 실적비례 + 실적우선 */
+    ppf.allocation_qty AS proportional_priority_qty,
+
+    /* 차이 */
+    NVL(slf.allocation_qty, 0)
+        - pf.allocation_qty AS sl_vs_proportional,
+
+    ppf.allocation_qty
+        - pf.allocation_qty AS priority_vs_proportional
+
+FROM site_performance sp
+
+LEFT JOIN proportional_final pf
+    ON pf.site_id = sp.site_id
+
+LEFT JOIN sainte_lague_final slf
+    ON slf.site_id = sp.site_id
+
+LEFT JOIN performance_priority_final ppf
+    ON ppf.site_id = sp.site_id
+
+ORDER BY
+    CASE sp.site_id
+        WHEN 'A' THEN 1
+        WHEN 'B' THEN 2
+        WHEN 'C' THEN 3
+        WHEN 'D' THEN 4
+        WHEN 'E' THEN 5
+        WHEN 'F' THEN 6
+        WHEN 'G' THEN 7
+    END;
