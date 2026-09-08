@@ -4501,3 +4501,30 @@ ORDER BY
         WHEN 'F' THEN 6
         WHEN 'G' THEN 7
     END;
+
+
+
+
+WITH RECURSIVE_SITES (fromsite, tosite, depth) AS (
+    -- 1. Anchor 멤버: 시작점 정의 (tosite를 알고 있는 상태에서 역추적)
+    SELECT fromsite, tosite, 1 AS depth
+    FROM your_table
+    WHERE tosite = '알고있는_사이트_명'
+    
+    UNION ALL
+    
+    -- 2. Recursive 멤버: 이전 단계의 fromsite를 현재 단계의 tosite로 연결
+    SELECT t.fromsite, t.tosite, r.depth + 1
+    FROM your_table t
+    INNER JOIN RECURSIVE_SITES r ON t.tosite = r.fromsite
+)
+-- 3. 순환 참조(Cycle) 방지 설정
+CYCLE fromsite SET is_cycle TO 'Y' DEFAULT 'N'
+
+-- 4. 최종 결과 조회
+SELECT fromsite, tosite, depth
+FROM RECURSIVE_SITES
+WHERE is_cycle = 'N'; -- 순환이 발생한 경로는 제외하고 출력
+
+
+
