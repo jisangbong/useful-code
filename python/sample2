@@ -38,6 +38,9 @@ END load_performance;
 
 
 
+
+
+
 CREATE OR REPLACE PROCEDURE update_emp_performance_bulk IS
     -- Record type for employee updates
     TYPE emp_perf_rec IS RECORD (
@@ -4528,3 +4531,59 @@ WHERE is_cycle = 'N'; -- 순환이 발생한 경로는 제외하고 출력
 
 
 
+WITH R
+(
+    FROMSITE,
+    TOSITE,
+    LVL
+) AS
+(
+    /* =================================================
+       ① Anchor
+       TARGET_SITE로 직접 연결된 관계
+       ================================================= */
+    SELECT
+        FROMSITE,
+        TOSITE,
+        1 AS LVL
+    FROM SITE_RELATION
+    WHERE TOSITE = :TARGET_SITE
+
+    UNION ALL
+
+    /* =================================================
+       ② Recursive
+       이전 FROMSITE를 새로운 TOSITE로 사용
+       ================================================= */
+    SELECT
+        S.FROMSITE,
+        S.TOSITE,
+        R.LVL + 1
+    FROM SITE_RELATION S
+    JOIN R
+      ON S.TOSITE = R.FROMSITE
+)
+    
+/* =====================================================
+   ③ Cycle 방지
+   ===================================================== */
+CYCLE FROMSITE
+SET IS_CYCLE TO 1
+DEFAULT 0
+
+/* =====================================================
+   ④ 탐색 순서
+   ===================================================== */
+SEARCH DEPTH FIRST BY FROMSITE SET ORD
+
+/* =====================================================
+   ⑤ 최종 출력
+   ===================================================== */
+SELECT
+    FROMSITE,
+    TOSITE,
+    LVL,
+    IS_CYCLE,
+    ORD
+FROM R
+ORDER BY ORD;
